@@ -363,11 +363,13 @@
 <svelte:window {onkeydown} />
 
 <Dialog.Root
-	{open}
-	onOpenChange={(v) => {
-		if (v) open = true;
-		else requestClose();
-	}}
+	bind:open={
+		() => open,
+		(v) => {
+			if (v) open = true;
+			else requestClose();
+		}
+	}
 >
 	<Dialog.Content
 		class="flex h-[min(90vh,820px)] w-[900px] max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[900px]"
