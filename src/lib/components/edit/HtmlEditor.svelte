@@ -6,7 +6,7 @@
 	import ListOrderedIcon from "@lucide/svelte/icons/list-ordered";
 	import CodeIcon from "@lucide/svelte/icons/code-xml";
 	import EraserIcon from "@lucide/svelte/icons/eraser";
-	import { cn } from "$lib/utils.js";
+	import { cn } from "#lib/utils.js";
 	import { normalizeHtml, sanitizeHtml } from "./sanitize";
 
 	let {

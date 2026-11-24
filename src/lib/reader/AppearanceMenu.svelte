@@ -1,12 +1,12 @@
 <script lang="ts">
 	import ALargeSmall from "@lucide/svelte/icons/a-large-small";
-	import { Button } from "$lib/components/ui/button/index.js";
-	import { Label } from "$lib/components/ui/label/index.js";
-	import * as Popover from "$lib/components/ui/popover/index.js";
-	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
-	import { Slider } from "$lib/components/ui/slider/index.js";
-	import { Switch } from "$lib/components/ui/switch/index.js";
-	import { cn } from "$lib/utils.js";
+	import { Button } from "#lib/components/ui/button/index.js";
+	import { Label } from "#lib/components/ui/label/index.js";
+	import * as Popover from "#lib/components/ui/popover/index.js";
+	import * as Tooltip from "#lib/components/ui/tooltip/index.js";
+	import { Slider } from "#lib/components/ui/slider/index.js";
+	import { Switch } from "#lib/components/ui/switch/index.js";
+	import { cn } from "#lib/utils.js";
 	import { limits, prefs, type FontChoice, type ThemeChoice } from "./prefs.svelte";
 	import type { Reader } from "./reader.svelte";
 	import { palettes } from "./themes";

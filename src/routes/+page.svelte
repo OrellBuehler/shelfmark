@@ -1,21 +1,21 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import Upload from "@lucide/svelte/icons/upload";
-	import { inTauri } from "$lib/api";
-	import * as AlertDialog from "$lib/components/ui/alert-dialog";
-	import * as Resizable from "$lib/components/ui/resizable";
-	import BulkEditDialog from "$lib/components/edit/BulkEditDialog.svelte";
-	import EditMetadataDialog from "$lib/components/edit/EditMetadataDialog.svelte";
-	import DevicesSheet from "$lib/components/devices/DevicesSheet.svelte";
-	import BookArea from "$lib/components/library/BookArea.svelte";
-	import DetailsPanel from "$lib/components/library/DetailsPanel.svelte";
-	import FilterChips from "$lib/components/library/FilterChips.svelte";
-	import Sidebar from "$lib/components/library/Sidebar.svelte";
-	import StatusBar from "$lib/components/library/StatusBar.svelte";
-	import TopBar from "$lib/components/library/TopBar.svelte";
-	import Welcome from "$lib/components/library/Welcome.svelte";
-	import { isEditable, plural } from "$lib/format";
-	import { lib } from "$lib/stores/library.svelte";
+	import { inTauri } from "#lib/api";
+	import * as AlertDialog from "#lib/components/ui/alert-dialog";
+	import * as Resizable from "#lib/components/ui/resizable";
+	import BulkEditDialog from "#lib/components/edit/BulkEditDialog.svelte";
+	import EditMetadataDialog from "#lib/components/edit/EditMetadataDialog.svelte";
+	import DevicesSheet from "#lib/components/devices/DevicesSheet.svelte";
+	import BookArea from "#lib/components/library/BookArea.svelte";
+	import DetailsPanel from "#lib/components/library/DetailsPanel.svelte";
+	import FilterChips from "#lib/components/library/FilterChips.svelte";
+	import Sidebar from "#lib/components/library/Sidebar.svelte";
+	import StatusBar from "#lib/components/library/StatusBar.svelte";
+	import TopBar from "#lib/components/library/TopBar.svelte";
+	import Welcome from "#lib/components/library/Welcome.svelte";
+	import { isEditable, plural } from "#lib/format";
+	import { lib } from "#lib/stores/library.svelte";
 
 	const vw = typeof window === "undefined" ? 1400 : Math.max(window.innerWidth, 900);
 	const pct = (px: number) => Math.round((px / vw) * 1000) / 10;

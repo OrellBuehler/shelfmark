@@ -5,8 +5,8 @@
 	import XIcon from "@lucide/svelte/icons/x";
 	import { open as pickFile } from "@tauri-apps/plugin-dialog";
 	import { toast } from "svelte-sonner";
-	import { api, coverUrl, inTauri, type Book } from "$lib/api";
-	import { Button } from "$lib/components/ui/button/index.js";
+	import { api, coverUrl, inTauri, type Book } from "#lib/api";
+	import { Button } from "#lib/components/ui/button/index.js";
 
 	let {
 		book,

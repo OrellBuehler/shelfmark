@@ -1,8 +1,8 @@
 <script lang="ts">
 	import LoaderCircle from "@lucide/svelte/icons/loader-circle";
-	import { formatSize, plural } from "$lib/format";
-	import { lib } from "$lib/stores/library.svelte";
-	import { updater } from "$lib/updater.svelte";
+	import { formatSize, plural } from "#lib/format";
+	import { lib } from "#lib/stores/library.svelte";
+	import { updater } from "#lib/updater.svelte";
 
 	const active = $derived(lib.busy > 0 || lib.loading);
 </script>

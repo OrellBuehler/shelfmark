@@ -4,9 +4,9 @@
 	import FolderOpen from "@lucide/svelte/icons/folder-open";
 	import FolderPlus from "@lucide/svelte/icons/folder-plus";
 	import Library from "@lucide/svelte/icons/library-big";
-	import { Button } from "$lib/components/ui/button";
-	import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
-	import { lib } from "$lib/stores/library.svelte";
+	import { Button } from "#lib/components/ui/button";
+	import * as DropdownMenu from "#lib/components/ui/dropdown-menu";
+	import { lib } from "#lib/stores/library.svelte";
 </script>
 
 <DropdownMenu.Root onOpenChange={(o) => o && lib.refreshRecents()}>

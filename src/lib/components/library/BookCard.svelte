@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { BookSummary } from "$lib/api";
-	import { lib } from "$lib/stores/library.svelte";
-	import { cn } from "$lib/utils";
+	import type { BookSummary } from "#lib/api";
+	import { lib } from "#lib/stores/library.svelte";
+	import { cn } from "#lib/utils";
 	import Cover from "./Cover.svelte";
 
 	let {

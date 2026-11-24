@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Bookmark from "@lucide/svelte/icons/bookmark";
 	import Trash2 from "@lucide/svelte/icons/trash-2";
-	import { cn } from "$lib/utils.js";
+	import { cn } from "#lib/utils.js";
 	import type { Reader } from "./reader.svelte";
 	import { colorValue } from "./themes";
 

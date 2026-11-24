@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Star from "@lucide/svelte/icons/star";
-	import { cn } from "$lib/utils";
+	import { cn } from "#lib/utils";
 
 	let {
 		value,

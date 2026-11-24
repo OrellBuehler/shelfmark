@@ -2,7 +2,7 @@
 	import Search from "@lucide/svelte/icons/search";
 	import X from "@lucide/svelte/icons/x";
 	import { tick } from "svelte";
-	import { cn } from "$lib/utils.js";
+	import { cn } from "#lib/utils.js";
 	import type { Reader } from "./reader.svelte";
 
 	let { reader }: { reader: Reader } = $props();

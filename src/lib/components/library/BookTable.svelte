@@ -3,11 +3,11 @@
 	import { createVirtualizer } from "@tanstack/svelte-virtual";
 	import ArrowDown from "@lucide/svelte/icons/arrow-down";
 	import ArrowUp from "@lucide/svelte/icons/arrow-up";
-	import type { SortField } from "$lib/api";
-	import { coverSrc } from "$lib/covers";
-	import { formatDate, formatSize } from "$lib/format";
-	import { lib } from "$lib/stores/library.svelte";
-	import { cn } from "$lib/utils";
+	import type { SortField } from "#lib/api";
+	import { coverSrc } from "#lib/covers";
+	import { formatDate, formatSize } from "#lib/format";
+	import { lib } from "#lib/stores/library.svelte";
+	import { cn } from "#lib/utils";
 	import Stars from "./Stars.svelte";
 
 	const HEADER = 32;

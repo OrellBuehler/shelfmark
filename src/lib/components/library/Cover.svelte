@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { coverSrc, placeholderHue } from "$lib/covers";
-	import type { BookSummary } from "$lib/api";
-	import { cn } from "$lib/utils";
+	import { coverSrc, placeholderHue } from "#lib/covers";
+	import type { BookSummary } from "#lib/api";
+	import { cn } from "#lib/utils";
 
 	let {
 		book,

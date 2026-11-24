@@ -9,10 +9,10 @@
 	import Sparkles from "@lucide/svelte/icons/sparkles";
 	import Trash from "@lucide/svelte/icons/trash";
 	import FileDown from "@lucide/svelte/icons/file-down";
-	import { Button } from "$lib/components/ui/button";
-	import * as ContextMenu from "$lib/components/ui/context-menu";
-	import { Skeleton } from "$lib/components/ui/skeleton";
-	import { lib } from "$lib/stores/library.svelte";
+	import { Button } from "#lib/components/ui/button";
+	import * as ContextMenu from "#lib/components/ui/context-menu";
+	import { Skeleton } from "#lib/components/ui/skeleton";
+	import { lib } from "#lib/stores/library.svelte";
 	import BookGrid from "./BookGrid.svelte";
 	import BookTable from "./BookTable.svelte";
 

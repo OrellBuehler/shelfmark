@@ -3,9 +3,9 @@
 	import FolderOpen from "@lucide/svelte/icons/folder-open";
 	import FolderPlus from "@lucide/svelte/icons/folder-plus";
 	import LoaderCircle from "@lucide/svelte/icons/loader-circle";
-	import { Button } from "$lib/components/ui/button";
-	import { plural } from "$lib/format";
-	import { lib } from "$lib/stores/library.svelte";
+	import { Button } from "#lib/components/ui/button";
+	import { plural } from "#lib/format";
+	import { lib } from "#lib/stores/library.svelte";
 	import AppIcon from "./AppIcon.svelte";
 </script>
 

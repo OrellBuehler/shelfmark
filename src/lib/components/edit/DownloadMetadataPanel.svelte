@@ -40,10 +40,10 @@
 	import ArrowRightIcon from "@lucide/svelte/icons/arrow-right";
 	import LoaderIcon from "@lucide/svelte/icons/loader-circle";
 	import { onMount } from "svelte";
-	import { api, type IdentifyQuery, type SourceResult } from "$lib/api";
-	import { Button } from "$lib/components/ui/button/index.js";
-		import { Skeleton } from "$lib/components/ui/skeleton/index.js";
-	import { cn } from "$lib/utils.js";
+	import { api, type IdentifyQuery, type SourceResult } from "#lib/api";
+	import { Button } from "#lib/components/ui/button/index.js";
+		import { Skeleton } from "#lib/components/ui/skeleton/index.js";
+	import { cn } from "#lib/utils.js";
 	import Check from "./Check.svelte";
 	import { languageName } from "./languages";
 	import { htmlToText, sanitizeHtml } from "./sanitize";

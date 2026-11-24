@@ -9,10 +9,10 @@
 	import Sun from "@lucide/svelte/icons/sun";
 	import Table2 from "@lucide/svelte/icons/table-2";
 	import Tablet from "@lucide/svelte/icons/tablet-smartphone";
-	import { Button } from "$lib/components/ui/button";
-	import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
-	import { Slider } from "$lib/components/ui/slider";
-	import { lib } from "$lib/stores/library.svelte";
+	import { Button } from "#lib/components/ui/button";
+	import * as DropdownMenu from "#lib/components/ui/dropdown-menu";
+	import { Slider } from "#lib/components/ui/slider";
+	import { lib } from "#lib/stores/library.svelte";
 	import IconButton from "./IconButton.svelte";
 	import LibrarySwitcher from "./LibrarySwitcher.svelte";
 	import SearchBar from "./SearchBar.svelte";

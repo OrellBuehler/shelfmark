@@ -2,11 +2,11 @@
 	import Download from "@lucide/svelte/icons/download";
 	import ExternalLink from "@lucide/svelte/icons/external-link";
 	import LoaderCircle from "@lucide/svelte/icons/loader-circle";
-	import { Button } from "$lib/components/ui/button";
-	import * as Dialog from "$lib/components/ui/dialog";
-	import { Progress } from "$lib/components/ui/progress";
-	import { openLink } from "$lib/links";
-	import { RELEASES_URL, updater } from "$lib/updater.svelte";
+	import { Button } from "#lib/components/ui/button";
+	import * as Dialog from "#lib/components/ui/dialog";
+	import { Progress } from "#lib/components/ui/progress";
+	import { openLink } from "#lib/links";
+	import { RELEASES_URL, updater } from "#lib/updater.svelte";
 </script>
 
 <Dialog.Root bind:open={() => updater.open, (v) => (updater.open = v || updater.busy)}>

@@ -3,9 +3,9 @@
 	import Trash2Icon from "@lucide/svelte/icons/trash-2";
 	import { open as pickFile } from "@tauri-apps/plugin-dialog";
 	import { toast } from "svelte-sonner";
-	import { api, inTauri, type Book } from "$lib/api";
-	import { Button } from "$lib/components/ui/button/index.js";
-	import * as AlertDialog from "$lib/components/ui/alert-dialog/index.js";
+	import { api, inTauri, type Book } from "#lib/api";
+	import { Button } from "#lib/components/ui/button/index.js";
+	import * as AlertDialog from "#lib/components/ui/alert-dialog/index.js";
 	import { humanSize } from "./format";
 
 	let { book, onchanged }: { book: Book; onchanged: (book: Book) => void } = $props();

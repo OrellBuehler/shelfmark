@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack } from "svelte";
 	import { createVirtualizer } from "@tanstack/svelte-virtual";
-	import { lib } from "$lib/stores/library.svelte";
+	import { lib } from "#lib/stores/library.svelte";
 	import BookCard from "./BookCard.svelte";
 
 	const PAD = 14;

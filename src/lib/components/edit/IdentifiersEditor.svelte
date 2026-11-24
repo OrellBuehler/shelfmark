@@ -5,7 +5,7 @@
 <script lang="ts">
 	import PlusIcon from "@lucide/svelte/icons/plus";
 	import XIcon from "@lucide/svelte/icons/x";
-	import { Button } from "$lib/components/ui/button/index.js";
+	import { Button } from "#lib/components/ui/button/index.js";
 
 	let { rows = $bindable([]) }: { rows?: IdentifierRow[] } = $props();
 

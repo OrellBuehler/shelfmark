@@ -3,9 +3,9 @@
 	import Search from "@lucide/svelte/icons/search";
 	import Trash2 from "@lucide/svelte/icons/trash";
 	import X from "@lucide/svelte/icons/x";
-	import { Button } from "$lib/components/ui/button";
-	import * as Popover from "$lib/components/ui/popover";
-	import { lib } from "$lib/stores/library.svelte";
+	import { Button } from "#lib/components/ui/button";
+	import * as Popover from "#lib/components/ui/popover";
+	import { lib } from "#lib/stores/library.svelte";
 	import IconButton from "./IconButton.svelte";
 
 	let input = $state<HTMLInputElement | null>(null);

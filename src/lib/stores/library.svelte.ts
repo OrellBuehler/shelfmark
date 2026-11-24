@@ -11,9 +11,9 @@ import {
 	type LibraryInfo,
 	type SavedSearch,
 	type SortField
-} from "$lib/api";
-import { sanitizeHtml } from "$lib/components/edit/sanitize";
-import { EBOOK_EXTENSIONS, baseName, pickReadFormat, plural } from "$lib/format";
+} from "#lib/api";
+import { sanitizeHtml } from "#lib/components/edit/sanitize";
+import { EBOOK_EXTENSIONS, baseName, pickReadFormat, plural } from "#lib/format";
 
 function preview(titles: string[]) {
 	return titles.slice(0, 3).join(", ") + (titles.length > 3 ? ` and ${titles.length - 3} more` : "");

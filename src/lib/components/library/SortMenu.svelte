@@ -1,10 +1,10 @@
 <script lang="ts">
 	import ArrowDownWideNarrow from "@lucide/svelte/icons/arrow-down-wide-narrow";
 	import ArrowUpNarrowWide from "@lucide/svelte/icons/arrow-up-narrow-wide";
-	import type { SortField } from "$lib/api";
-	import { Button } from "$lib/components/ui/button";
-	import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
-	import { lib } from "$lib/stores/library.svelte";
+	import type { SortField } from "#lib/api";
+	import { Button } from "#lib/components/ui/button";
+	import * as DropdownMenu from "#lib/components/ui/dropdown-menu";
+	import { lib } from "#lib/stores/library.svelte";
 
 	const fields: { value: SortField; label: string }[] = [
 		{ value: "title", label: "Title" },

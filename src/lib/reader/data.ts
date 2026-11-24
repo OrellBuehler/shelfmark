@@ -1,4 +1,4 @@
-import { api, inTauri, type Annotation, type BookId, type ReadingState } from "$lib/api";
+import { api, inTauri, type Annotation, type BookId, type ReadingState } from "#lib/api";
 
 const stateKey = (id: BookId) => `shelfmark.dev.reader.state.${id}`;
 const notesKey = (id: BookId) => `shelfmark.dev.reader.notes.${id}`;

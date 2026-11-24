@@ -3,7 +3,7 @@
 	import type { TocItem } from "foliate-js/view.js";
 	import { tick } from "svelte";
 	import { SvelteSet } from "svelte/reactivity";
-	import { cn } from "$lib/utils.js";
+	import { cn } from "#lib/utils.js";
 	import type { Reader } from "./reader.svelte";
 
 	let { reader }: { reader: Reader } = $props();

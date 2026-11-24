@@ -1,6 +1,6 @@
 <script lang="ts">
 	import X from "@lucide/svelte/icons/x";
-	import { lib } from "$lib/stores/library.svelte";
+	import { lib } from "#lib/stores/library.svelte";
 </script>
 
 {#if lib.filters.length}

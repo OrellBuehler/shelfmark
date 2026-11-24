@@ -1,4 +1,4 @@
-import { api, bookFileUrl, inTauri, type Annotation, type BookId } from "$lib/api";
+import { api, bookFileUrl, inTauri, type Annotation, type BookId } from "#lib/api";
 import type {
 	FoliateBook,
 	RelocateDetail,

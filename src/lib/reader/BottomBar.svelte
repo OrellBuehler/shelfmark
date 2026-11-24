@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Slider } from "$lib/components/ui/slider/index.js";
+	import { Slider } from "#lib/components/ui/slider/index.js";
 	import type { Reader } from "./reader.svelte";
 
 	let { reader }: { reader: Reader } = $props();

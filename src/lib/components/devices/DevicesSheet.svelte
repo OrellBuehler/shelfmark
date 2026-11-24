@@ -21,13 +21,13 @@
 	import { open as pickDirectory } from "@tauri-apps/plugin-dialog";
 	import { untrack } from "svelte";
 	import { toast } from "svelte-sonner";
-	import { api, inTauri, type Device, type DeviceBook, type DeviceKind } from "$lib/api";
+	import { api, inTauri, type Device, type DeviceBook, type DeviceKind } from "#lib/api";
 	import Check from "../edit/Check.svelte";
-	import { Button } from "$lib/components/ui/button/index.js";
-	import { Skeleton } from "$lib/components/ui/skeleton/index.js";
-	import * as Sheet from "$lib/components/ui/sheet/index.js";
-	import * as AlertDialog from "$lib/components/ui/alert-dialog/index.js";
-	import { cn } from "$lib/utils.js";
+	import { Button } from "#lib/components/ui/button/index.js";
+	import { Skeleton } from "#lib/components/ui/skeleton/index.js";
+	import * as Sheet from "#lib/components/ui/sheet/index.js";
+	import * as AlertDialog from "#lib/components/ui/alert-dialog/index.js";
+	import { cn } from "#lib/utils.js";
 	import { humanSize } from "../edit/format";
 
 	let {

@@ -9,8 +9,8 @@
 	import X from "@lucide/svelte/icons/x";
 	import { mode } from "mode-watcher";
 	import { onDestroy, onMount, untrack } from "svelte";
-	import { Button } from "$lib/components/ui/button/index.js";
-	import { cn } from "$lib/utils.js";
+	import { Button } from "#lib/components/ui/button/index.js";
+	import { cn } from "#lib/utils.js";
 	import AnnotationEditor from "./AnnotationEditor.svelte";
 	import BottomBar from "./BottomBar.svelte";
 	import { prefs, type ThemeName } from "./prefs.svelte";

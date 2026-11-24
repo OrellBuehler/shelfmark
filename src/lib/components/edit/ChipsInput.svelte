@@ -1,6 +1,6 @@
 <script lang="ts">
 	import XIcon from "@lucide/svelte/icons/x";
-	import { cn } from "$lib/utils.js";
+	import { cn } from "#lib/utils.js";
 	import Autocomplete from "./Autocomplete.svelte";
 
 	let {

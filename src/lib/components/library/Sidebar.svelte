@@ -4,10 +4,10 @@
 	import ChevronRight from "@lucide/svelte/icons/chevron-right";
 	import Search from "@lucide/svelte/icons/search";
 	import X from "@lucide/svelte/icons/x";
-	import type { CategoryItem } from "$lib/api";
-	import { languageName } from "$lib/format";
-	import { lib } from "$lib/stores/library.svelte";
-	import { cn } from "$lib/utils";
+	import type { CategoryItem } from "#lib/api";
+	import { languageName } from "#lib/format";
+	import { lib } from "#lib/stores/library.svelte";
+	import { cn } from "#lib/utils";
 	import Stars from "./Stars.svelte";
 
 	const LABELS: Record<string, string> = {

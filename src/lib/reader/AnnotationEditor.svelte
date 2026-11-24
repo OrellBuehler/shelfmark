@@ -1,8 +1,8 @@
 <script lang="ts">
 	import Trash2 from "@lucide/svelte/icons/trash-2";
 	import { onDestroy, untrack } from "svelte";
-	import { Button } from "$lib/components/ui/button/index.js";
-	import { cn } from "$lib/utils.js";
+	import { Button } from "#lib/components/ui/button/index.js";
+	import { cn } from "#lib/utils.js";
 	import { floatAt } from "./float";
 	import type { Reader } from "./reader.svelte";
 	import { highlightColors } from "./themes";

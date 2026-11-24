@@ -5,11 +5,11 @@
 	import BooksIcon from "@lucide/svelte/icons/library-big";
 	import { untrack } from "svelte";
 	import { toast } from "svelte-sonner";
-	import { api, type BulkPatch } from "$lib/api";
-	import { Button } from "$lib/components/ui/button/index.js";
-		import { Input } from "$lib/components/ui/input/index.js";
-		import * as Dialog from "$lib/components/ui/dialog/index.js";
-	import { cn } from "$lib/utils.js";
+	import { api, type BulkPatch } from "#lib/api";
+	import { Button } from "#lib/components/ui/button/index.js";
+		import { Input } from "#lib/components/ui/input/index.js";
+		import * as Dialog from "#lib/components/ui/dialog/index.js";
+	import { cn } from "#lib/utils.js";
 	import Autocomplete from "./Autocomplete.svelte";
 	import Check from "./Check.svelte";
 	import ChipsInput from "./ChipsInput.svelte";

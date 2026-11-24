@@ -2,8 +2,8 @@
 	import NotebookPen from "@lucide/svelte/icons/notebook-pen";
 	import Search from "@lucide/svelte/icons/search";
 	import TableOfContents from "@lucide/svelte/icons/table-of-contents";
-	import * as Sheet from "$lib/components/ui/sheet/index.js";
-	import * as Tabs from "$lib/components/ui/tabs/index.js";
+	import * as Sheet from "#lib/components/ui/sheet/index.js";
+	import * as Tabs from "#lib/components/ui/tabs/index.js";
 	import NotesPanel from "./NotesPanel.svelte";
 	import type { PanelTab, Reader } from "./reader.svelte";
 	import SearchPanel from "./SearchPanel.svelte";

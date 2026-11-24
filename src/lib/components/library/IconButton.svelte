@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { mergeProps } from "bits-ui";
 	import type { Component } from "svelte";
-	import { Button, type ButtonProps } from "$lib/components/ui/button";
-	import * as Tooltip from "$lib/components/ui/tooltip";
+	import { Button, type ButtonProps } from "#lib/components/ui/button";
+	import * as Tooltip from "#lib/components/ui/tooltip";
 
 	let {
 		label,

@@ -6,12 +6,12 @@
 	import Pencil from "@lucide/svelte/icons/pencil";
 	import Send from "@lucide/svelte/icons/send";
 	import Trash from "@lucide/svelte/icons/trash";
-	import { api, type Book } from "$lib/api";
-	import { Button } from "$lib/components/ui/button";
-	import { identifierLinks, formatDate, formatDateTime, formatSize, languageName, plural } from "$lib/format";
-	import { openLink } from "$lib/links";
-	import { sanitizeHtml } from "$lib/sanitize";
-	import { lib } from "$lib/stores/library.svelte";
+	import { api, type Book } from "#lib/api";
+	import { Button } from "#lib/components/ui/button";
+	import { identifierLinks, formatDate, formatDateTime, formatSize, languageName, plural } from "#lib/format";
+	import { openLink } from "#lib/links";
+	import { sanitizeHtml } from "#lib/sanitize";
+	import { lib } from "#lib/stores/library.svelte";
 	import Cover from "./Cover.svelte";
 	import Stars from "./Stars.svelte";
 
