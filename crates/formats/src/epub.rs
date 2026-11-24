@@ -26,7 +26,7 @@ fn read_entry(zip: &mut Zip, name: &str) -> Option<Vec<u8>> {
         name.to_string()
     } else {
         let lower = name.to_lowercase();
-        zip.file_names()
+        zip.file_names().flatten()
             .find(|n| n.to_lowercase() == lower)?
             .to_string()
     };
@@ -106,13 +106,13 @@ fn load_opf(zip: &mut Zip) -> Result<Opf> {
             .and_then(|r| r.attr("full-path"))
             .map(|p| resolve("", p));
     }
-    let opf_path = match opf_path.filter(|p| zip.file_names().any(|n| n.eq_ignore_ascii_case(p))) {
+    let opf_path = match opf_path.filter(|p| zip.file_names().flatten().any(|n| n.eq_ignore_ascii_case(p))) {
         Some(p) => p,
         None => zip
-            .file_names()
+            .file_names().flatten()
             .filter(|n| n.to_lowercase().ends_with(".opf"))
             .min_by_key(|n| n.matches('/').count())
-            .map(str::to_string)
+            .map(|n| n.to_string())
             .ok_or_else(|| invalid("epub", "no package document"))?,
     };
     let bytes =
@@ -1139,22 +1139,22 @@ pub fn write_metadata(path: &Path, meta: &Metadata, cover: Option<&[u8]>) -> Res
     apply_metadata(&mut opf.doc.root, meta);
     let mut replace: HashMap<String, Vec<u8>> = HashMap::new();
     if let Some(data) = cover {
-        let names: HashSet<String> = zip.file_names().map(str::to_string).collect();
+        let names: HashSet<String> = zip.file_names().flatten().map(|n| n.to_string()).collect();
         if let Some(edit) = set_cover(&mut opf.doc.root, &opf.dir, &names, data)
             && let Some((name, bytes)) = edit.replace
         {
             let real = zip
-                .file_names()
+                .file_names().flatten()
                 .find(|n| n.eq_ignore_ascii_case(&name))
-                .map(str::to_string)
+                .map(|n| n.to_string())
                 .unwrap_or(name);
             replace.insert(real, bytes);
         }
     }
     let opf_real = zip
-        .file_names()
+        .file_names().flatten()
         .find(|n| *n == opf.path)
-        .map(str::to_string)
+        .map(|n| n.to_string())
         .unwrap_or(opf.path.clone());
     replace.insert(opf_real, opf.doc.serialize().into_bytes());
     rewrite_zip(path, zip, &replace)?;
@@ -1172,7 +1172,7 @@ fn rewrite_zip(path: &Path, mut zin: Zip, replace: &HashMap<String, Vec<u8>>) ->
         let mut written = HashSet::from(["mimetype".to_string()]);
         for i in order {
             let f = zin.by_index_raw(i)?;
-            let name = f.name().to_string();
+            let name = f.name()?.to_string();
             if !written.insert(name.clone()) {
                 continue;
             }

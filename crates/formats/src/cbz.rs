@@ -12,14 +12,14 @@ use crate::xml;
 
 fn image_names(zip: &ZipArchive<File>) -> Vec<String> {
     let mut names: Vec<String> = zip
-        .file_names()
+        .file_names().flatten()
         .filter(|n| {
             !n.ends_with('/')
                 && !n.starts_with("__MACOSX")
                 && !n.rsplit('/').next().unwrap_or("").starts_with('.')
         })
         .filter(|n| util::is_image_name(n))
-        .map(str::to_string)
+        .map(|n| n.to_string())
         .collect();
     names.sort_by(|a, b| util::natural_cmp(a, b));
     names
@@ -34,7 +34,7 @@ fn read(zip: &mut ZipArchive<File>, name: &str) -> Option<Vec<u8>> {
 
 fn comic_info(zip: &mut ZipArchive<File>) -> Option<xml::Document> {
     let name = zip
-        .file_names()
+        .file_names().flatten()
         .find(|n| {
             n.rsplit('/')
                 .next()

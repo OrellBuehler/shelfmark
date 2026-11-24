@@ -77,7 +77,7 @@ impl Epub {
         })?;
         let mut names = HashMap::new();
         for i in 0..zip.len() {
-            if let Some(name) = zip.name_for_index(i) {
+            if let Some(Ok(name)) = zip.name_for_index(i) {
                 names.insert(name.to_string(), i);
             }
         }
