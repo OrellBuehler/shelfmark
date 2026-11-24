@@ -65,7 +65,10 @@ fn kobo_needs_signature_files() {
 #[test]
 fn detects_tolino_on_kobo_layout() {
     let t = tempfile::tempdir().unwrap();
-    touch(&t.path().join(".kobo/version"), "N1,1,2,3,4,00000000-0000-0000-0000-000000000691");
+    touch(
+        &t.path().join(".kobo/version"),
+        "N1,1,2,3,4,00000000-0000-0000-0000-000000000691",
+    );
     let d = detect_one(t.path(), None).unwrap();
     assert_eq!(d.kind, DeviceKind::Tolino);
     assert_eq!(d.supported_formats, ["EPUB", "PDF", "TXT"]);
@@ -74,7 +77,10 @@ fn detects_tolino_on_kobo_layout() {
 #[test]
 fn detects_old_tolino_by_label() {
     let t = tempfile::tempdir().unwrap();
-    assert_eq!(detect_one(t.path(), Some("tolino")).unwrap().kind, DeviceKind::Tolino);
+    assert_eq!(
+        detect_one(t.path(), Some("tolino")).unwrap().kind,
+        DeviceKind::Tolino
+    );
 }
 
 #[test]
@@ -100,7 +106,10 @@ fn detects_generic_by_marker_only() {
     let t = tempfile::tempdir().unwrap();
     assert!(detect_one(t.path(), None).is_none());
     touch(&t.path().join("metadata.calibre"), "[]");
-    assert_eq!(detect_one(t.path(), None).unwrap().kind, DeviceKind::Generic);
+    assert_eq!(
+        detect_one(t.path(), None).unwrap().kind,
+        DeviceKind::Generic
+    );
 
     let t2 = tempfile::tempdir().unwrap();
     touch(
@@ -112,8 +121,14 @@ fn detects_generic_by_marker_only() {
     assert_eq!(d.books_dir, t2.path().join("Books/sub").to_string_lossy());
 
     let t3 = tempfile::tempdir().unwrap();
-    touch(&t3.path().join(".shelfmark-device"), r#"{"booksDir":"../x"}"#);
-    assert_eq!(detect_one(t3.path(), None).unwrap().books_dir, t3.path().to_string_lossy());
+    touch(
+        &t3.path().join(".shelfmark-device"),
+        r#"{"booksDir":"../x"}"#,
+    );
+    assert_eq!(
+        detect_one(t3.path(), None).unwrap().books_dir,
+        t3.path().to_string_lossy()
+    );
 }
 
 #[test]
@@ -152,11 +167,20 @@ fn lists_books_and_skips_hidden_dirs() {
     touch(&t.path().join("._mac.epub"), "c");
     let d = detect_one(t.path(), None).unwrap();
     let reader = |p: &Path| {
-        p.to_string_lossy().contains("Book - Author").then(|| meta("The Book", "An Author"))
+        p.to_string_lossy()
+            .contains("Book - Author")
+            .then(|| meta("The Book", "An Author"))
     };
     let books = list_books(&d, &reader).unwrap();
     let rels: Vec<_> = books.iter().map(|b| b.rel_path.as_str()).collect();
-    assert_eq!(rels, ["Author/Book - Author.epub", "Author/Other.kepub.epub", "loose.pdf"]);
+    assert_eq!(
+        rels,
+        [
+            "Author/Book - Author.epub",
+            "Author/Other.kepub.epub",
+            "loose.pdf"
+        ]
+    );
     assert_eq!(books[0].title, "The Book");
     assert_eq!(books[0].authors, ["An Author"]);
     assert_eq!(books[0].format, "EPUB");
@@ -238,7 +262,10 @@ fn send_sanitises_and_roundtrips() {
     touch(&src.path().join("in.epub"), "content");
     let m = meta("What: A \"Title\"? / x.", "J. R. R. Tolkien.");
     let b = send_book(&d, &src.path().join("in.epub"), &m, "EPUB").unwrap();
-    assert_eq!(b.rel_path, "J. R. R. Tolkien/What_ A _Title__ _ x - J. R. R. Tolkien.epub");
+    assert_eq!(
+        b.rel_path,
+        "J. R. R. Tolkien/What_ A _Title__ _ x - J. R. R. Tolkien.epub"
+    );
     assert_eq!(b.format, "EPUB");
     assert_eq!(b.size, 7);
     assert_eq!(fs::read_to_string(&b.path).unwrap(), "content");
@@ -257,7 +284,9 @@ fn send_sanitises_and_roundtrips() {
     let b2 = send_book(&d, &src.path().join("in.epub"), &m, "epub").unwrap();
     assert_eq!(b2.path, b.path);
     assert_eq!(fs::read_to_string(&b2.path).unwrap(), "newer content");
-    let leftovers: Vec<_> = fs::read_dir(Path::new(&b.path).parent().unwrap()).unwrap().collect();
+    let leftovers: Vec<_> = fs::read_dir(Path::new(&b.path).parent().unwrap())
+        .unwrap()
+        .collect();
     assert_eq!(leftovers.len(), 1);
 }
 
@@ -267,7 +296,13 @@ fn send_fallbacks_and_reserved_names() {
     let d = folder_device(t.path()).unwrap();
     let src = tempfile::tempdir().unwrap();
     touch(&src.path().join("Some Book.pdf"), "p");
-    let b = send_book(&d, &src.path().join("Some Book.pdf"), &Metadata::default(), "PDF").unwrap();
+    let b = send_book(
+        &d,
+        &src.path().join("Some Book.pdf"),
+        &Metadata::default(),
+        "PDF",
+    )
+    .unwrap();
     assert_eq!(b.rel_path, "Unknown/Some Book - Unknown.pdf");
 
     let m = Metadata {
@@ -302,7 +337,13 @@ fn send_rejects_unsupported_format_and_handles_kepub() {
     let b = send_book(&kd, &src.path().join("a.epub"), &meta("T", "A"), "EPUB").unwrap();
     assert_eq!(b.rel_path, "A/T - A.epub");
     touch(&src.path().join("b.kepub.epub"), "x");
-    let b = send_book(&kd, &src.path().join("b.kepub.epub"), &meta("T", "A"), "EPUB").unwrap();
+    let b = send_book(
+        &kd,
+        &src.path().join("b.kepub.epub"),
+        &meta("T", "A"),
+        "EPUB",
+    )
+    .unwrap();
     assert_eq!(b.rel_path, "A/T - A.kepub.epub");
     assert_eq!(b.format, "KEPUB");
     let listed = list_books(&kd, &|_| None).unwrap();
@@ -367,7 +408,11 @@ fn delete_refuses_outside_paths_and_non_books() {
 
     let abs = delete_book(&d, &outside.path().join("victim.epub"));
     assert!(matches!(abs, Err(Error::OutsideDevice(_))));
-    let trav = t.path().join("../").join(outside.path().file_name().unwrap()).join("victim.epub");
+    let trav = t
+        .path()
+        .join("../")
+        .join(outside.path().file_name().unwrap())
+        .join("victim.epub");
     assert!(delete_book(&d, &trav).is_err());
     assert!(matches!(
         delete_book(&d, Path::new("../x.epub")),

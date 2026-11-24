@@ -163,6 +163,22 @@ fn refinement<'a>(
         .map(|(_, v)| v.as_str())
 }
 
+fn has_author_role(map: &HashMap<String, Vec<(String, String)>>, el: &Element) -> bool {
+    let mut roles: Vec<&str> = el.attr("role").into_iter().collect();
+    if let Some(id) = el.attr("id")
+        && let Some(props) = map.get(id)
+    {
+        roles.extend(
+            props
+                .iter()
+                .filter(|(p, _)| p == "role")
+                .map(|(_, v)| v.as_str()),
+        );
+    }
+    roles.retain(|r| !r.trim().is_empty());
+    roles.is_empty() || roles.iter().any(|r| r.trim().eq_ignore_ascii_case("aut"))
+}
+
 fn is_isbn(s: &str) -> bool {
     let c: String = s
         .chars()
@@ -285,14 +301,7 @@ fn parse_metadata(root: &Element) -> Metadata {
 
     let mut file_as = Vec::new();
     for c in kids.iter().filter(|e| e.is("creator")) {
-        let role = c
-            .attr("role")
-            .map(str::to_string)
-            .or_else(|| refinement(&refines, c, "role").map(str::to_string));
-        if role
-            .as_deref()
-            .is_some_and(|r| !r.trim().is_empty() && !r.trim().eq_ignore_ascii_case("aut"))
-        {
+        if !has_author_role(&refines, c) {
             continue;
         }
         if let Some(name) = clean(&c.text())
@@ -880,14 +889,7 @@ fn write_title(md: &mut Element, ctx: &Ctx, meta: &Metadata, used: &mut HashSet<
 
 fn write_creators(md: &mut Element, ctx: &Ctx, meta: &Metadata, used: &mut HashSet<String>) {
     let refines = refines_map(&md.elements().collect::<Vec<_>>());
-    let is_author = |e: &Element| {
-        let role = e
-            .attr("role")
-            .map(str::to_string)
-            .or_else(|| refinement(&refines, e, "role").map(str::to_string));
-        e.is("creator")
-            && role.is_none_or(|r| r.trim().is_empty() || r.trim().eq_ignore_ascii_case("aut"))
-    };
+    let is_author = |e: &Element| e.is("creator") && has_author_role(&refines, e);
     let ids = ids_of(md, |e| is_author(e));
     remove_where(md, |e| is_author(e));
     remove_refinements(md, &ids, &["role", "file-as"]);

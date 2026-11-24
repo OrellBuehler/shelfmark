@@ -12,8 +12,15 @@ use crate::time;
 
 pub type MetaReader<'a> = &'a dyn Fn(&Path) -> Option<Metadata>;
 
-const SKIP_DIRS: &[&str] = &["system", "system volume information", "$recycle.bin", "lost+found"];
-const KINDLE_SIDECARS: &[&str] = &[".sdr", ".mbp", ".tan", ".pdr", ".ea", ".apnx", ".phl", ".mbp1", ".mbs", ".han"];
+const SKIP_DIRS: &[&str] = &[
+    "system",
+    "system volume information",
+    "$recycle.bin",
+    "lost+found",
+];
+const KINDLE_SIDECARS: &[&str] = &[
+    ".sdr", ".mbp", ".tan", ".pdr", ".ea", ".apnx", ".phl", ".mbp1", ".mbs", ".han",
+];
 const MAX_DEPTH: usize = 16;
 const RESERVED: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
@@ -29,7 +36,10 @@ fn format_of(device: &Device, name: &str) -> Option<String> {
     let format = if lower.ends_with(".kepub.epub") && supports(device, "KEPUB") {
         "KEPUB".to_string()
     } else {
-        Path::new(&lower).extension()?.to_str()?.to_ascii_uppercase()
+        Path::new(&lower)
+            .extension()?
+            .to_str()?
+            .to_ascii_uppercase()
     };
     supports(device, &format).then_some(format)
 }
@@ -110,7 +120,10 @@ pub fn list_books(device: &Device, read_meta: MetaReader) -> Result<Vec<DeviceBo
                     let e = Entry {
                         size,
                         mtime,
-                        title: meta.as_ref().and_then(|m| m.title.clone()).filter(|t| !t.trim().is_empty()),
+                        title: meta
+                            .as_ref()
+                            .and_then(|m| m.title.clone())
+                            .filter(|t| !t.trim().is_empty()),
                         authors: meta.as_ref().map(|m| m.authors.clone()).unwrap_or_default(),
                         uuid: meta.and_then(|m| m.uuid),
                     };
@@ -180,7 +193,10 @@ pub fn send_book(device: &Device, src: &Path, meta: &Metadata, format: &str) -> 
         return Err(Error::NotFound(src.to_path_buf()));
     }
 
-    let src_name = src.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let src_name = src
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
     let mut format = format.trim().trim_start_matches('.').to_ascii_uppercase();
     if format == "EPUB" && src_name.ends_with(".kepub.epub") && supports(device, "KEPUB") {
         format = "KEPUB".into();
@@ -201,7 +217,11 @@ pub fn send_book(device: &Device, src: &Path, meta: &Metadata, format: &str) -> 
         .file_name()
         .map(|n| fallback_title(&n.to_string_lossy()))
         .unwrap_or_default();
-    let title_raw = meta.title.as_deref().filter(|t| !t.trim().is_empty()).unwrap_or(&stem);
+    let title_raw = meta
+        .title
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or(&stem);
     let author_raw = meta.authors.first().map(String::as_str).unwrap_or("");
     let author_dir = sanitize(author_raw, 60, "Unknown");
     let title = sanitize(title_raw, 100, "Unknown");
@@ -210,7 +230,10 @@ pub fn send_book(device: &Device, src: &Path, meta: &Metadata, format: &str) -> 
     let dir = books_dir.join(&author_dir);
     let target = dir.join(&file_name);
 
-    let existing = fs::metadata(&target).ok().filter(|m| m.is_file()).map_or(0, |m| m.len());
+    let existing = fs::metadata(&target)
+        .ok()
+        .filter(|m| m.is_file())
+        .map_or(0, |m| m.len());
     let needed = src_md.len().saturating_sub(existing);
     let (total, free) = space(&root);
     if total > 0 && needed > free {
@@ -285,7 +308,10 @@ pub fn delete_book(device: &Device, path: &Path) -> Result<()> {
     if !file.is_file() {
         return Err(Error::Invalid(format!("not a file: {}", path.display())));
     }
-    let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = file
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let rel_comps = file.strip_prefix(&root).unwrap_or(&file);
     if name.starts_with('.')
         || rel_comps.components().any(|c| match c {
@@ -294,7 +320,10 @@ pub fn delete_book(device: &Device, path: &Path) -> Result<()> {
         })
         || format_of(device, &name).is_none()
     {
-        return Err(Error::Invalid(format!("not a book on this device: {}", path.display())));
+        return Err(Error::Invalid(format!(
+            "not a book on this device: {}",
+            path.display()
+        )));
     }
     let rel = rel_string(rel_comps);
 

@@ -113,7 +113,9 @@ fn sub_dir(root: &Path, rel: &str) -> Option<PathBuf> {
         return None;
     }
     let p = Path::new(rel);
-    if p.components().all(|c| matches!(c, std::path::Component::Normal(_))) {
+    if p.components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)))
+    {
         Some(root.join(p))
     } else {
         None
@@ -164,13 +166,27 @@ pub fn probe(root: &Path, label: Option<&str>) -> Option<Device> {
     {
         let model = kobo_model_id(root).as_deref().and_then(kobo_model);
         return Some(match model {
-            Some((name, true)) => {
-                build(root, DeviceKind::Tolino, name.into(), root.into(), TOLINO_FORMATS)
-            }
-            Some((name, false)) => {
-                build(root, DeviceKind::Kobo, name.into(), root.into(), KOBO_FORMATS)
-            }
-            None => build(root, DeviceKind::Kobo, "Kobo eReader".into(), root.into(), KOBO_FORMATS),
+            Some((name, true)) => build(
+                root,
+                DeviceKind::Tolino,
+                name.into(),
+                root.into(),
+                TOLINO_FORMATS,
+            ),
+            Some((name, false)) => build(
+                root,
+                DeviceKind::Kobo,
+                name.into(),
+                root.into(),
+                KOBO_FORMATS,
+            ),
+            None => build(
+                root,
+                DeviceKind::Kobo,
+                "Kobo eReader".into(),
+                root.into(),
+                KOBO_FORMATS,
+            ),
         });
     }
 
@@ -178,7 +194,13 @@ pub fn probe(root: &Path, label: Option<&str>) -> Option<Device> {
         && find_dir(&root.join("system"), "config").is_none()
         && !label_has(label, "pocketbook")
     {
-        return Some(build(root, DeviceKind::Kindle, "Kindle".into(), docs, KINDLE_FORMATS));
+        return Some(build(
+            root,
+            DeviceKind::Kindle,
+            "Kindle".into(),
+            docs,
+            KINDLE_FORMATS,
+        ));
     }
 
     let system = root.join("system");
@@ -216,7 +238,13 @@ pub fn probe(root: &Path, label: Option<&str>) -> Option<Device> {
             .and_then(|b| sub_dir(root, b))
             .unwrap_or_else(|| root.into());
         let name = marker.name.unwrap_or_else(|| label_name("E-reader"));
-        return Some(build(root, DeviceKind::Generic, name, books, GENERIC_FORMATS));
+        return Some(build(
+            root,
+            DeviceKind::Generic,
+            name,
+            books,
+            GENERIC_FORMATS,
+        ));
     }
 
     None
@@ -231,7 +259,13 @@ pub fn folder_device(path: &Path) -> Result<Device> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| root.to_string_lossy().into_owned());
-    Ok(build(&root, DeviceKind::Folder, name, root.clone(), GENERIC_FORMATS))
+    Ok(build(
+        &root,
+        DeviceKind::Folder,
+        name,
+        root.clone(),
+        GENERIC_FORMATS,
+    ))
 }
 
 pub fn detect_roots(candidates: &[(PathBuf, Option<String>)]) -> Vec<Device> {
@@ -307,7 +341,10 @@ fn candidate_roots() -> Vec<(PathBuf, Option<String>)> {
             list.extend(parse_proc_mounts(&text).into_iter().map(|p| (p, None)));
         }
         let mut dirs = children(Path::new("/media"));
-        for user in children(Path::new("/media")).iter().chain(children(Path::new("/run/media")).iter()) {
+        for user in children(Path::new("/media"))
+            .iter()
+            .chain(children(Path::new("/run/media")).iter())
+        {
             dirs.extend(children(user));
         }
         dirs.extend(children(Path::new("/mnt")));
@@ -315,7 +352,11 @@ fn candidate_roots() -> Vec<(PathBuf, Option<String>)> {
     }
 
     #[cfg(target_os = "macos")]
-    list.extend(children(Path::new("/Volumes")).into_iter().map(|p| (p, None)));
+    list.extend(
+        children(Path::new("/Volumes"))
+            .into_iter()
+            .map(|p| (p, None)),
+    );
 
     let system_drive = std::env::var("SystemDrive").ok();
     list.retain(|(p, _)| {
@@ -324,7 +365,10 @@ fn candidate_roots() -> Vec<(PathBuf, Option<String>)> {
         }
         if let Some(sd) = &system_drive {
             let s = p.to_string_lossy();
-            if s.len() >= 2 && s[..2].eq_ignore_ascii_case(sd) && s.trim_end_matches(['\\', '/']).len() == 2 {
+            if s.len() >= 2
+                && s[..2].eq_ignore_ascii_case(sd)
+                && s.trim_end_matches(['\\', '/']).len() == 2
+            {
                 return false;
             }
         }
@@ -351,6 +395,12 @@ mod tests {
     fn proc_mounts() {
         let text = "/dev/sdb1 /media/me/KOBO\\040eReader vfat rw 0 0\nproc /proc proc rw 0 0\nC:\\134 /mnt/c 9p rw 0 0\n";
         let m = parse_proc_mounts(text);
-        assert_eq!(m, [PathBuf::from("/media/me/KOBO eReader"), PathBuf::from("/mnt/c")]);
+        assert_eq!(
+            m,
+            [
+                PathBuf::from("/media/me/KOBO eReader"),
+                PathBuf::from("/mnt/c")
+            ]
+        );
     }
 }
