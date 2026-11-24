@@ -9,3 +9,13 @@ shelfmark-model.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+rusqlite = { version = "0.41", features = ["bundled", "functions", "collation"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+regex = "1"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+deunicode = "1"
+unicode-normalization = "0.1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"

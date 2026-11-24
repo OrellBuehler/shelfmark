@@ -1,156 +1,202 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+	import { onMount } from "svelte";
+	import Upload from "@lucide/svelte/icons/upload";
+	import { inTauri } from "$lib/api";
+	import * as AlertDialog from "$lib/components/ui/alert-dialog";
+	import * as Resizable from "$lib/components/ui/resizable";
+	import BulkEditDialog from "$lib/components/edit/BulkEditDialog.svelte";
+	import EditMetadataDialog from "$lib/components/edit/EditMetadataDialog.svelte";
+	import DevicesSheet from "$lib/components/devices/DevicesSheet.svelte";
+	import BookArea from "$lib/components/library/BookArea.svelte";
+	import DetailsPanel from "$lib/components/library/DetailsPanel.svelte";
+	import FilterChips from "$lib/components/library/FilterChips.svelte";
+	import Sidebar from "$lib/components/library/Sidebar.svelte";
+	import StatusBar from "$lib/components/library/StatusBar.svelte";
+	import TopBar from "$lib/components/library/TopBar.svelte";
+	import Welcome from "$lib/components/library/Welcome.svelte";
+	import { isEditable, plural } from "$lib/format";
+	import { lib } from "$lib/stores/library.svelte";
 
-  let name = $state("");
-  let greetMsg = $state("");
+	const vw = typeof window === "undefined" ? 1400 : Math.max(window.innerWidth, 900);
+	const pct = (px: number) => Math.round((px / vw) * 1000) / 10;
 
-  async function greet(event: Event) {
-    event.preventDefault();
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsg = await invoke("greet", { name });
-  }
+	onMount(() => {
+		void lib.init();
+		let unlisten: (() => void) | undefined;
+		let disposed = false;
+		if (inTauri) {
+			import("@tauri-apps/api/webview").then(({ getCurrentWebview }) =>
+				getCurrentWebview().onDragDropEvent((e) => {
+					const p = e.payload;
+					if (p.type === "enter" || p.type === "over") lib.dragging = true;
+					else if (p.type === "drop") {
+						lib.dragging = false;
+						if (lib.info) void lib.addPaths(p.paths);
+					} else lib.dragging = false;
+				})
+			).then((u) => (disposed ? u() : (unlisten = u)));
+		}
+		return () => {
+			disposed = true;
+			unlisten?.();
+		};
+	});
+
+	$effect(() => {
+		lib.savePrefs();
+	});
+
+	$effect(() => {
+		document.title = lib.info ? `${lib.info.name} · Shelfmark` : "Shelfmark";
+	});
+
+	function onkeydown(e: KeyboardEvent) {
+		if (!lib.info || e.defaultPrevented) return;
+		const mod = e.ctrlKey || e.metaKey;
+		const key = e.key.toLowerCase();
+		const editable = isEditable(e.target);
+		const overlay = document.querySelector('[role="dialog"],[role="alertdialog"],[role="menu"]');
+		if (overlay) return;
+
+		if (mod && key === "f") {
+			e.preventDefault();
+			lib.searchEl?.focus();
+			lib.searchEl?.select();
+			return;
+		}
+		if (mod && key === "b") {
+			e.preventDefault();
+			lib.sidebarOpen = !lib.sidebarOpen;
+			return;
+		}
+		if (editable || e.altKey) return;
+		const el = e.target instanceof HTMLElement ? e.target : null;
+		if (el?.closest("[role='slider']")) return;
+		if (e.key === "Enter" && el?.closest("button, a") && !el.closest("[role='option']")) return;
+
+		if (key === "/" && !mod) {
+			e.preventDefault();
+			lib.searchEl?.focus();
+		} else if (mod && key === "a") {
+			e.preventDefault();
+			lib.selectAll();
+		} else if (mod) {
+			return;
+		} else if (e.key === "Escape") {
+			lib.clearSelection();
+		} else if (e.key === "ArrowDown") {
+			e.preventDefault();
+			lib.move(0, 1, e.shiftKey);
+		} else if (e.key === "ArrowUp") {
+			e.preventDefault();
+			lib.move(0, -1, e.shiftKey);
+		} else if (e.key === "ArrowRight" && lib.view === "grid") {
+			e.preventDefault();
+			lib.move(1, 0, e.shiftKey);
+		} else if (e.key === "ArrowLeft" && lib.view === "grid") {
+			e.preventDefault();
+			lib.move(-1, 0, e.shiftKey);
+		} else if (e.key === "Home" || e.key === "End") {
+			e.preventDefault();
+			const i = e.key === "Home" ? 0 : lib.books.length - 1;
+			lib.selectIndex(i, { shift: e.shiftKey });
+			lib.scrollTo?.(i);
+		} else if (e.key === "Enter") {
+			e.preventDefault();
+			lib.readSelected();
+		} else if (key === "e") {
+			e.preventDefault();
+			lib.editSelected();
+		} else if (key === "i") {
+			lib.detailsOpen = !lib.detailsOpen;
+		} else if (e.key === "Delete") {
+			e.preventDefault();
+			lib.askDelete();
+		}
+	}
+
+	const sidebarMin = pct(200);
+	const sidebarMax = pct(460);
+	const detailsMin = pct(280);
+	const detailsMax = pct(560);
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
+<svelte:window {onkeydown} />
 
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
-  </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
+{#if !lib.ready}
+	<div class="size-full bg-background"></div>
+{:else if !lib.info}
+	<Welcome />
+{:else}
+	<div class="flex h-screen flex-col">
+		<TopBar />
+		<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
+			{#if lib.sidebarOpen}
+				<Resizable.Pane
+					order={1}
+					defaultSize={lib.sidebarSize}
+					minSize={sidebarMin}
+					maxSize={sidebarMax}
+					onResize={(s) => (lib.sidebarSize = Math.round(s * 10) / 10)}
+				>
+					<Sidebar />
+				</Resizable.Pane>
+				<Resizable.Handle />
+			{/if}
+			<Resizable.Pane order={2} minSize={30}>
+				<main class="flex h-full min-w-0 flex-col bg-background">
+					<FilterChips />
+					<div class="min-h-0 flex-1"><BookArea /></div>
+				</main>
+			</Resizable.Pane>
+			{#if lib.detailsOpen}
+				<Resizable.Handle />
+				<Resizable.Pane
+					order={3}
+					defaultSize={lib.detailsSize}
+					minSize={detailsMin}
+					maxSize={detailsMax}
+					onResize={(s) => (lib.detailsSize = Math.round(s * 10) / 10)}
+				>
+					<DetailsPanel />
+				</Resizable.Pane>
+			{/if}
+		</Resizable.PaneGroup>
+		<StatusBar />
+	</div>
 
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
-</main>
+	{#if lib.dragging}
+		<div class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
+			<div class="m-6 flex size-full max-h-[calc(100%-3rem)] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-brand">
+				<Upload class="size-8 text-brand" />
+				<p class="text-lg font-semibold">Drop e-books to add them</p>
+			</div>
+		</div>
+	{/if}
 
-<style>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
+	<EditMetadataDialog bind:open={lib.editOpen} bookId={lib.editId} onsaved={() => lib.reload()} />
+	<BulkEditDialog bind:open={lib.bulkOpen} bookIds={lib.bulkIds} onsaved={() => lib.reload()} />
+	<DevicesSheet bind:open={lib.devicesOpen} selectedIds={lib.selectedIds} onchanged={() => lib.reload()} />
 
-.logo.svelte-kit:hover {
-  filter: drop-shadow(0 0 2em #ff3e00);
-}
-
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
-</style>
+	<AlertDialog.Root bind:open={lib.deleteOpen}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title>Delete {plural(lib.selected.size, "book")}?</AlertDialog.Title>
+				<AlertDialog.Description>
+					{#if lib.selectedBooks.length === 1}
+						"{lib.selectedBooks[0].title}" and its files will be moved to the library's trash.
+					{:else}
+						The selected books and all their files will be moved to the library's trash.
+					{/if}
+				</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+				<AlertDialog.Action variant="destructive" onclick={() => {
+						lib.deleteOpen = false;
+						void lib.deleteSelected();
+					}}>Delete</AlertDialog.Action>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
+{/if}

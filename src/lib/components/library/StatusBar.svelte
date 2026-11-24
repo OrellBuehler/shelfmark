@@ -1,0 +1,27 @@
+<script lang="ts">
+	import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+	import { formatSize, plural } from "$lib/format";
+	import { lib } from "$lib/stores/library.svelte";
+
+	const active = $derived(lib.busy > 0 || lib.loading);
+</script>
+
+<footer class="flex h-7 shrink-0 items-center gap-3 border-t bg-sidebar px-3 text-xs text-muted-foreground" aria-live="polite">
+	<span class="tabular-nums">
+		{plural(lib.books.length, "book")}{#if lib.query && lib.totalBooks > lib.books.length}<span class="ml-1 opacity-70">of {lib.totalBooks.toLocaleString()}</span>{/if}
+	</span>
+	{#if lib.selected.size}
+		<span class="text-foreground tabular-nums">{lib.selected.size.toLocaleString()} selected · {formatSize(lib.selectedSize)}</span>
+	{/if}
+	<span class="ml-auto flex min-w-0 items-center gap-2">
+		{#if active}
+			<span class="flex items-center gap-1.5 text-foreground">
+				<LoaderCircle class="size-3 animate-spin" />
+				{lib.busy > 0 ? lib.busyLabel : "Loading"}
+			</span>
+		{/if}
+		{#if lib.info}
+			<span class="truncate" title={lib.info.path}>{lib.info.path}</span>
+		{/if}
+	</span>
+</footer>
