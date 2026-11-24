@@ -4163,7 +4163,7 @@ dependencies = [
 
 [[package]]
 name = "shelfmark"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "image",
  "serde",
@@ -4183,7 +4183,7 @@ dependencies = [
 
 [[package]]
 name = "shelfmark-convert"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "encoding_rs",
  "flate2",
@@ -4197,7 +4197,7 @@ dependencies = [
 
 [[package]]
 name = "shelfmark-devices"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "fs4",
  "rusqlite",
@@ -4211,7 +4211,7 @@ dependencies = [
 
 [[package]]
 name = "shelfmark-formats"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "encoding_rs",
  "futures-util",
@@ -4228,7 +4228,7 @@ dependencies = [
 
 [[package]]
 name = "shelfmark-library"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "chrono",
  "deunicode",
@@ -4246,14 +4246,14 @@ dependencies = [
 
 [[package]]
 name = "shelfmark-model"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "shelfmark-reading"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "rusqlite",
  "serde",
