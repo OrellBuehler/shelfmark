@@ -81,7 +81,7 @@
 				<ContextMenu.Item onSelect={() => lib.editSelected()}>
 					<Pencil />{single ? "Edit metadata" : `Edit ${count} books`}<ContextMenu.Shortcut>E</ContextMenu.Shortcut>
 				</ContextMenu.Item>
-				<ContextMenu.Item disabled={!single} onSelect={() => lib.editSelected()}><Sparkles />Download metadata</ContextMenu.Item>
+				<ContextMenu.Item onSelect={() => lib.askDownloadMetadata()}><Sparkles />Download and apply metadata</ContextMenu.Item>
 				<ContextMenu.Item onSelect={() => lib.embedSelected()}><FileDown />Embed metadata into files</ContextMenu.Item>
 				<ContextMenu.Separator />
 				<ContextMenu.Item onSelect={() => lib.sendSelected()}><Send />Send to device</ContextMenu.Item>

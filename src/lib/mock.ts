@@ -599,6 +599,11 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 		case "open_externally":
 			console.info("[mock]", cmd, args);
 			return null;
+		case "best_metadata": {
+			await sleep(400);
+			const b = find(s, a.id);
+			return b.id % 4 === 0 ? null : fakeResults({ title: b.title, authors: b.authors, isbn: null })[0];
+		}
 		case "identify":
 			await sleep(700);
 			return fakeResults(a.query);

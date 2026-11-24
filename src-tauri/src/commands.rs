@@ -282,6 +282,17 @@ pub async fn identify(query: IdentifyQuery) -> R<Vec<SourceResult>> {
     Ok(formats::sources::identify(&query).await)
 }
 
+#[tauri::command]
+pub async fn best_metadata(state: State<'_, AppState>, id: BookId) -> R<Option<SourceResult>> {
+    let meta = state.current()?.library.metadata(id).map_err(e)?;
+    let query = IdentifyQuery {
+        isbn: meta.identifiers.get("isbn").cloned(),
+        title: meta.title,
+        authors: meta.authors,
+    };
+    Ok(formats::sources::best_match(&query).await)
+}
+
 fn devices(state: &AppState) -> Vec<Device> {
     let mut devices = shelfmark_devices::detect();
     for path in state.folder_devices() {

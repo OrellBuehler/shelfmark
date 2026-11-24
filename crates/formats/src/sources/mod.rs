@@ -37,6 +37,64 @@ pub async fn identify(query: &IdentifyQuery) -> Vec<SourceResult> {
     all.into_iter().map(|(_, r)| r).collect()
 }
 
+fn confident(q: &IdentifyQuery, m: &Metadata) -> bool {
+    if let Some(isbn) = q.isbn.as_deref().map(clean_isbn).filter(|i| !i.is_empty())
+        && m.identifiers
+            .get("isbn")
+            .is_some_and(|i| clean_isbn(i) == isbn)
+    {
+        return true;
+    }
+    let (Some(qt), Some(mt)) = (&q.title, &m.title) else {
+        return false;
+    };
+    let (a, b) = (tokens(qt), tokens(mt));
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    let qa = tokens(&q.authors.join(" "));
+    let known = !qa.is_empty() && qa != ["unknown"];
+    let authors = known && overlap(&qa, &tokens(&m.authors.join(" "))) >= 0.5;
+    let subset = a.iter().all(|t| b.contains(t)) || b.iter().all(|t| a.contains(t));
+    if known {
+        authors && (subset || overlap(&a, &b) >= 0.8)
+    } else {
+        a == b
+    }
+}
+
+pub fn pick_best(query: &IdentifyQuery, results: Vec<SourceResult>) -> Option<SourceResult> {
+    let mut matches = results
+        .into_iter()
+        .filter(|r| confident(query, &r.metadata));
+    let mut best = matches.next()?;
+    for other in matches {
+        let (m, o) = (&mut best.metadata, other.metadata);
+        m.comments = m.comments.take().or(o.comments);
+        m.publisher = m.publisher.take().or(o.publisher);
+        m.pubdate = m.pubdate.take().or(o.pubdate);
+        if m.series.is_none() && o.series.is_some() {
+            m.series = o.series;
+            m.series_index = o.series_index;
+        }
+        if m.tags.is_empty() {
+            m.tags = o.tags;
+        }
+        if m.languages.is_empty() {
+            m.languages = o.languages;
+        }
+        for (k, v) in o.identifiers {
+            m.identifiers.entry(k).or_insert(v);
+        }
+        best.cover_url = best.cover_url.take().or(other.cover_url);
+    }
+    Some(best)
+}
+
+pub async fn best_match(query: &IdentifyQuery) -> Option<SourceResult> {
+    pick_best(query, identify(query).await)
+}
+
 pub async fn fetch_cover(url: &str) -> Result<Vec<u8>> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err(invalid("cover", "unsupported url"));
@@ -122,3 +180,61 @@ pub(crate) fn clean_isbn(s: &str) -> String {
 pub(crate) use google::parse_volumes as parse_google;
 #[cfg(test)]
 pub(crate) use openlibrary::{parse_edition as parse_ol_edition, parse_search as parse_ol_search};
+
+#[cfg(test)]
+mod best_tests {
+    use super::*;
+
+    fn result(title: &str, author: &str) -> SourceResult {
+        SourceResult {
+            source: "test".into(),
+            metadata: Metadata {
+                title: Some(title.into()),
+                authors: vec![author.into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    fn query(title: &str, authors: &[&str]) -> IdentifyQuery {
+        IdentifyQuery {
+            title: Some(title.into()),
+            authors: authors.iter().map(|a| a.to_string()).collect(),
+            isbn: None,
+        }
+    }
+
+    #[test]
+    fn rejects_other_books() {
+        let q = query("Dune", &["Frank Herbert"]);
+        assert!(pick_best(&q, vec![result("Dune", "Someone Else")]).is_none());
+        assert!(pick_best(&q, vec![result("Emma", "Frank Herbert")]).is_none());
+        let q = query("Dune", &["Unknown"]);
+        assert!(pick_best(&q, vec![result("Dune Messiah", "Frank Herbert")]).is_none());
+    }
+
+    #[test]
+    fn accepts_subtitle_and_name_order() {
+        let q = query("Dune", &["Herbert, Frank"]);
+        assert!(pick_best(&q, vec![result("Dune: A Novel", "Frank Herbert")]).is_some());
+    }
+
+    #[test]
+    fn accepts_isbn_and_fills_gaps() {
+        let mut q = query("Wrong title", &[]);
+        q.isbn = Some("978-0-441-17271-9".into());
+        let mut a = result("Dune", "Frank Herbert");
+        a.metadata
+            .identifiers
+            .insert("isbn".into(), "9780441172719".into());
+        let mut b = a.clone();
+        b.metadata.comments = Some("Desert planet.".into());
+        b.metadata.identifiers.insert("google".into(), "x".into());
+        b.cover_url = Some("https://example.org/c.jpg".into());
+        let best = pick_best(&q, vec![a, result("Other", "Nobody"), b]).unwrap();
+        assert_eq!(best.metadata.comments.as_deref(), Some("Desert planet."));
+        assert_eq!(best.metadata.identifiers.len(), 2);
+        assert!(best.cover_url.is_some());
+    }
+}

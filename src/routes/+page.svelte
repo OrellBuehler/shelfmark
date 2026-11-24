@@ -178,6 +178,25 @@
 	<BulkEditDialog bind:open={lib.bulkOpen} bookIds={lib.bulkIds} onsaved={() => lib.reload()} />
 	<DevicesSheet bind:open={lib.devicesOpen} selectedIds={lib.selectedIds} onchanged={() => lib.reload()} />
 
+	<AlertDialog.Root bind:open={lib.metaOpen}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title>Download metadata for {plural(lib.selected.size, "book")}?</AlertDialog.Title>
+				<AlertDialog.Description>
+					Title, authors, description, tags, publisher, date, languages and cover are replaced with what Open Library
+					and Google Books return. Books without a confident match are left unchanged. Your ratings are kept.
+				</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+				<AlertDialog.Action onclick={() => {
+						lib.metaOpen = false;
+						void lib.downloadMetadataSelected();
+					}}>Download and apply</AlertDialog.Action>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
+
 	<AlertDialog.Root bind:open={lib.deleteOpen}>
 		<AlertDialog.Content>
 			<AlertDialog.Header>

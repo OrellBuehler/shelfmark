@@ -40,6 +40,7 @@ pub fn run() {
             commands::show_in_folder,
             commands::open_externally,
             commands::identify,
+            commands::best_metadata,
             commands::detect_devices,
             commands::add_folder_device,
             commands::device_books,

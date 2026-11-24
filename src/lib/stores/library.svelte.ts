@@ -4,6 +4,7 @@ import {
 	api,
 	inTauri,
 	type Book,
+	type BookPatch,
 	type BookSummary,
 	type Category,
 	type CategoryItem,
@@ -11,7 +12,12 @@ import {
 	type SavedSearch,
 	type SortField
 } from "$lib/api";
+import { sanitizeHtml } from "$lib/components/edit/sanitize";
 import { EBOOK_EXTENSIONS, baseName, pickReadFormat, plural } from "$lib/format";
+
+function preview(titles: string[]) {
+	return titles.slice(0, 3).join(", ") + (titles.length > 3 ? ` and ${titles.length - 3} more` : "");
+}
 
 export interface Filter {
 	search: string;
@@ -130,6 +136,8 @@ class LibraryState {
 	bulkIds = $state.raw<number[]>([]);
 	devicesOpen = $state(false);
 	deleteOpen = $state(false);
+	metaOpen = $state(false);
+	metaRunning = false;
 	dragging = $state(false);
 	searchEl: HTMLInputElement | null = null;
 
@@ -591,6 +599,64 @@ class LibraryState {
 		} catch (e) {
 			this.fail("Could not embed metadata", e);
 		}
+	}
+
+	askDownloadMetadata() {
+		if (this.selected.size && !this.metaRunning) this.metaOpen = true;
+	}
+
+	async downloadMetadataSelected() {
+		const books = this.selectedBooks;
+		if (!books.length || this.metaRunning) return;
+		this.metaRunning = true;
+		let stop = false;
+		let updated = 0;
+		const missed: string[] = [];
+		const failed: string[] = [];
+		const id = toast.loading("Downloading metadata");
+		for (const [i, book] of books.entries()) {
+			if (stop) break;
+			toast.loading(`Downloading metadata ${i + 1} of ${books.length}`, {
+				id,
+				description: book.title,
+				action: { label: "Stop", onClick: () => (stop = true) }
+			});
+			try {
+				const r = await api.bestMetadata(book.id);
+				if (!r) {
+					missed.push(book.title);
+					continue;
+				}
+				const m = r.metadata;
+				const patch: BookPatch = { identifiers: { ...book.identifiers, ...m.identifiers } };
+				if (m.title) patch.title = m.title;
+				if (m.authors.length) patch.authors = m.authors;
+				if (m.series) {
+					patch.series = m.series;
+					patch.seriesIndex = m.seriesIndex ?? 1;
+				}
+				if (m.tags.length) patch.tags = m.tags;
+				if (m.publisher) patch.publisher = m.publisher;
+				if (m.pubdate) patch.pubdate = m.pubdate.slice(0, 10);
+				if (m.languages.length) patch.languages = m.languages;
+				if (m.comments) patch.comments = sanitizeHtml(m.comments);
+				await api.updateBook(book.id, patch);
+				if (r.coverUrl) await api.setCoverFromUrl(book.id, r.coverUrl).catch(() => {});
+				updated++;
+			} catch {
+				failed.push(book.title);
+			}
+		}
+		this.metaRunning = false;
+		const notes = [];
+		if (missed.length) notes.push(`No confident match for ${plural(missed.length, "book")}: ${preview(missed)}`);
+		if (failed.length) notes.push(`Failed for ${plural(failed.length, "book")}: ${preview(failed)}`);
+		if (stop) notes.push("Stopped early.");
+		const done = `Updated metadata for ${plural(updated, "book")}`;
+		const opts = { id, description: notes.join(" ") || undefined, action: undefined, duration: notes.length ? 15000 : 4000 };
+		if (updated) toast.success(done, opts);
+		else toast.warning(done, opts);
+		await this.reload();
 	}
 
 	async addPaths(paths: string[]) {

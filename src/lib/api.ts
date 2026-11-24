@@ -239,6 +239,7 @@ export const api = {
 	openExternally: (id: BookId, format: string) => invoke<void>("open_externally", { id, format }),
 
 	identify: (query: IdentifyQuery) => invoke<SourceResult[]>("identify", { query }),
+	bestMetadata: (id: BookId) => invoke<SourceResult | null>("best_metadata", { id }),
 
 	detectDevices: () => invoke<Device[]>("detect_devices"),
 	addFolderDevice: (path: string) => invoke<Device>("add_folder_device", { path }),
