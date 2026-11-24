@@ -7,7 +7,7 @@ use shelfmark_model::*;
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
-use crate::state::{AppState, LibraryInfo, info};
+use crate::state::{AppState, LibraryInfo, OpenLibrary, info};
 
 type R<T> = Result<T, String>;
 
@@ -28,6 +28,7 @@ pub struct AddOutcome {
 pub struct SendOutcome {
     book_id: BookId,
     book: Option<DeviceBook>,
+    converted: bool,
     error: Option<String>,
 }
 
@@ -167,6 +168,20 @@ fn collect_books(path: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+fn import_file(open: &OpenLibrary, file: &Path) -> AddOutcome {
+    let result = formats::read_metadata(file).map_err(e).and_then(|meta| {
+        let cover = formats::read_cover(file).ok().flatten();
+        open.library
+            .add_book(&meta, cover.as_deref(), &[file.to_path_buf()])
+            .map_err(e)
+    });
+    AddOutcome {
+        path: file.to_string_lossy().into_owned(),
+        book_id: result.as_ref().ok().copied(),
+        error: result.err(),
+    }
+}
+
 #[tauri::command(async)]
 pub fn add_books(state: State<AppState>, paths: Vec<String>) -> R<Vec<AddOutcome>> {
     let open = state.current()?;
@@ -179,19 +194,30 @@ pub fn add_books(state: State<AppState>, paths: Vec<String>) -> R<Vec<AddOutcome
             files.push(path.to_path_buf());
         }
     }
-    Ok(files
-        .into_iter()
-        .map(|file| {
-            let result = formats::read_metadata(&file).map_err(e).and_then(|meta| {
-                let cover = formats::read_cover(&file).ok().flatten();
-                open.library
-                    .add_book(&meta, cover.as_deref(), std::slice::from_ref(&file))
-                    .map_err(e)
-            });
-            AddOutcome {
-                path: file.to_string_lossy().into_owned(),
-                book_id: result.as_ref().ok().copied(),
-                error: result.err(),
+    Ok(files.iter().map(|file| import_file(&open, file)).collect())
+}
+
+#[tauri::command(async)]
+pub fn import_from_device(
+    state: State<AppState>,
+    device_id: String,
+    paths: Vec<String>,
+) -> R<Vec<AddOutcome>> {
+    let device = device(&state, &device_id)?;
+    let open = state.current()?;
+    let root = Path::new(&device.root);
+    Ok(paths
+        .iter()
+        .map(|path| {
+            let file = Path::new(path);
+            if file.starts_with(root) && file.is_file() {
+                import_file(&open, file)
+            } else {
+                AddOutcome {
+                    path: path.clone(),
+                    book_id: None,
+                    error: Some("File is not on this device".to_string()),
+                }
             }
         })
         .collect())
@@ -293,6 +319,67 @@ pub fn device_books(state: State<AppState>, device_id: String) -> R<Vec<DeviceBo
     shelfmark_devices::list_books(&device, &|p| formats::read_metadata(p).ok()).map_err(e)
 }
 
+fn convert_for_device(
+    state: &AppState,
+    open: &OpenLibrary,
+    device: &Device,
+    book: &Book,
+) -> R<String> {
+    let lib = &open.library;
+    let id = book.summary.id;
+    let has = |f: &str| {
+        book.summary
+            .formats
+            .iter()
+            .any(|b| b.eq_ignore_ascii_case(f))
+    };
+    let source = ["EPUB", "KEPUB"].into_iter().find(|f| has(f));
+    let target = device
+        .supported_formats
+        .iter()
+        .find(|t| source.is_some_and(|s| shelfmark_convert::can_convert(s, t)));
+    let (Some(source), Some(target)) = (source, target) else {
+        return Err(format!(
+            "No format this device can read (has {})",
+            book.summary.formats.join(", ")
+        ));
+    };
+    let src = lib.format_path(id, source).map_err(e)?;
+    let meta = lib.metadata(id).map_err(e)?;
+    let cover = lib
+        .cover_path(id)
+        .ok()
+        .flatten()
+        .and_then(|p| std::fs::read(p).ok());
+    let dir = state.cache_dir.join("convert");
+    std::fs::create_dir_all(&dir).map_err(e)?;
+    let out = dir.join(format!("{id}.{}", target.to_lowercase()));
+    shelfmark_convert::epub_to_azw3(&src, &out, &meta, cover.as_deref())
+        .map_err(|err| format!("Could not convert {source} to {target}: {err}"))?;
+    let added = lib.add_format(id, &out).map_err(e);
+    let _ = std::fs::remove_file(&out);
+    added?;
+    Ok(target.clone())
+}
+
+fn kindle_thumbnail(device: &Device, cover: Option<PathBuf>, meta: &Metadata) {
+    let (Some(cover), Some(uuid)) = (cover, meta.uuid.as_deref()) else {
+        return;
+    };
+    let dir = Path::new(&device.root).join("system").join("thumbnails");
+    if !dir.is_dir() || !uuid.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return;
+    }
+    let Ok(img) = image::open(&cover) else {
+        return;
+    };
+    let thumb = img.thumbnail(330, 470).to_rgb8();
+    let _ = thumb.save_with_format(
+        dir.join(format!("thumbnail_{uuid}_EBOK_portrait.jpg")),
+        image::ImageFormat::Jpeg,
+    );
+}
+
 #[tauri::command(async)]
 pub fn send_to_device(
     state: State<AppState>,
@@ -305,9 +392,10 @@ pub fn send_to_device(
     Ok(ids
         .into_iter()
         .map(|id| {
+            let mut converted = false;
             let result = (|| {
                 let book = lib.get_book(id).map_err(e)?;
-                let format = device
+                let direct = device
                     .supported_formats
                     .iter()
                     .find(|f| {
@@ -316,19 +404,28 @@ pub fn send_to_device(
                             .iter()
                             .any(|b| b.eq_ignore_ascii_case(f))
                     })
-                    .ok_or_else(|| {
-                        format!(
-                            "No format this device can read (has {})",
-                            book.summary.formats.join(", ")
-                        )
-                    })?;
-                let path = lib.format_path(id, format).map_err(e)?;
+                    .cloned();
+                let format = match direct {
+                    Some(format) => format,
+                    None => {
+                        let format = convert_for_device(&state, &open, &device, &book)?;
+                        converted = true;
+                        format
+                    }
+                };
+                let path = lib.format_path(id, &format).map_err(e)?;
                 let meta = lib.metadata(id).map_err(e)?;
-                shelfmark_devices::send_book(&device, &path, &meta, format).map_err(e)
+                let sent =
+                    shelfmark_devices::send_book(&device, &path, &meta, &format).map_err(e)?;
+                if converted && device.kind == DeviceKind::Kindle {
+                    kindle_thumbnail(&device, lib.cover_path(id).ok().flatten(), &meta);
+                }
+                Ok(sent)
             })();
             SendOutcome {
                 book_id: id,
                 book: result.as_ref().ok().cloned(),
+                converted,
                 error: result.err(),
             }
         })

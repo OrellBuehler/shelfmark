@@ -28,6 +28,21 @@ fn kindle() -> TempDir {
     t
 }
 
+fn labels(d: &shelfmark_model::Device) -> Vec<(&str, &str)> {
+    d.info
+        .iter()
+        .map(|i| (i.label.as_str(), i.value.as_str()))
+        .collect()
+}
+
+fn audible_activation(serial: &str) -> Vec<u8> {
+    let mut b = vec![0x39, 0xb8, 0x9b, 0x30, 0, 0, 0, 0, 0, 1];
+    b.extend_from_slice(serial.as_bytes());
+    b.extend_from_slice(&[0; 16]);
+    b.resize(560, 0xff);
+    b
+}
+
 fn meta(title: &str, author: &str) -> Metadata {
     Metadata {
         title: Some(title.into()),
@@ -437,4 +452,140 @@ fn delete_refuses_symlink_escape() {
     let r = delete_book(&d, &t.path().join("link/victim.epub"));
     assert!(matches!(r, Err(Error::OutsideDevice(_))));
     assert!(outside.path().join("victim.epub").exists());
+}
+
+#[test]
+fn kobo_info_has_model_firmware_serial() {
+    let t = tempfile::tempdir().unwrap();
+    touch(
+        &t.path().join(".kobo/version"),
+        "N000000000000,4.1.15,4.38.23038,4.38.23038,4.38.23038,00000000-0000-0000-0000-000000000391\n",
+    );
+    let d = detect_one(t.path(), None).unwrap();
+    assert_eq!(
+        labels(&d),
+        [
+            ("Model", "Kobo Clara BW"),
+            ("Firmware", "4.38.23038"),
+            ("Serial number", "N000000000000"),
+        ]
+    );
+}
+
+#[test]
+fn kobo_info_without_known_model() {
+    let t = tempfile::tempdir().unwrap();
+    touch(&t.path().join(".kobo/version"), "N1,1");
+    let d = detect_one(t.path(), None).unwrap();
+    assert_eq!(labels(&d), [("Serial number", "N1")]);
+}
+
+#[test]
+fn kindle_info_empty_without_files() {
+    let t = kindle();
+    assert!(detect_one(t.path(), None).unwrap().info.is_empty());
+}
+
+#[test]
+fn kindle_info_from_system_files() {
+    let t = kindle();
+    touch(
+        &t.path().join("system/version.txt"),
+        "Kindle 5.19.2 (467076 040)",
+    );
+    fs::write(
+        t.path().join("system/AudibleActivation.sys"),
+        audible_activation("G0AB123456789XYZ"),
+    )
+    .unwrap();
+    let d = detect_one(t.path(), None).unwrap();
+    assert_eq!(
+        labels(&d),
+        [
+            ("Firmware", "5.19.2 (467076 040)"),
+            ("Serial number", "G0AB123456789XYZ"),
+        ]
+    );
+}
+
+#[test]
+fn kindle_info_rejects_garbage_serial() {
+    let t = kindle();
+    fs::write(
+        t.path().join("system/AudibleActivation.sys"),
+        audible_activation("not a serial !!!"),
+    )
+    .unwrap();
+    fs::write(t.path().join("system/version.txt"), "\0\u{1}binary").unwrap();
+    assert!(detect_one(t.path(), None).unwrap().info.is_empty());
+
+    let t2 = kindle();
+    fs::write(t2.path().join("system/AudibleActivation.sys"), [1u8; 5]).unwrap();
+    assert!(detect_one(t2.path(), None).unwrap().info.is_empty());
+}
+
+#[test]
+fn kindle_info_counts_vocabulary_and_clippings() {
+    let t = kindle();
+    let db = t.path().join("system/vocabulary/vocab.db");
+    fs::create_dir_all(db.parent().unwrap()).unwrap();
+    {
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.execute_batch(
+            "CREATE TABLE WORDS (id TEXT, word TEXT, stem TEXT, lang TEXT, category INTEGER, timestamp INTEGER, profileid TEXT);
+             INSERT INTO WORDS (id, word) VALUES ('en:a', 'a'), ('en:b', 'b'), ('en:c', 'c');",
+        )
+        .unwrap();
+    }
+    let clippings = t.path().join("documents/My Clippings.txt");
+    touch(
+        &clippings,
+        "\u{feff}Title (Author)\r\n- Your Highlight on Location 1-2 | Added on Monday, January 1, 2024 10:00:00 AM\r\n\r\ntext\r\n==========\r\nTitle (Author)\r\n- Your Bookmark on Location 9 | Added on Monday, January 1, 2024 10:01:00 AM\r\n\r\n\r\n==========\r\n",
+    );
+    let d = detect_one(t.path(), None).unwrap();
+    assert_eq!(labels(&d), [("Vocabulary words", "3"), ("Clippings", "2")]);
+
+    let mut text = fs::read_to_string(&clippings).unwrap();
+    text.push_str("T (A)\r\n- Your Note on Location 3 | Added on x\r\n\r\nn\r\n==========\r\n");
+    fs::write(&clippings, text).unwrap();
+    let d = detect_one(t.path(), None).unwrap();
+    assert!(labels(&d).contains(&("Clippings", "3")));
+}
+
+#[test]
+fn kindle_info_ignores_broken_vocabulary_db() {
+    let t = kindle();
+    touch(&t.path().join("system/vocabulary/vocab.db"), "not sqlite");
+    assert!(detect_one(t.path(), None).unwrap().info.is_empty());
+}
+
+#[test]
+fn kindle_info_never_writes_to_device() {
+    let t = kindle();
+    let db = t.path().join("system/vocabulary/vocab.db");
+    fs::create_dir_all(db.parent().unwrap()).unwrap();
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute_batch("CREATE TABLE WORDS (id TEXT); INSERT INTO WORDS VALUES ('x');")
+        .unwrap();
+    let snapshot = |root: &Path| {
+        let mut v: Vec<_> = walk(root);
+        v.sort();
+        v
+    };
+    fn walk(dir: &Path) -> Vec<(PathBuf, u64)> {
+        let mut out = Vec::new();
+        for e in fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                out.extend(walk(&p));
+            } else {
+                out.push((p, e.metadata().unwrap().len()));
+            }
+        }
+        out
+    }
+    let before = snapshot(t.path());
+    detect_one(t.path(), None).unwrap();
+    assert_eq!(before, snapshot(t.path()));
 }

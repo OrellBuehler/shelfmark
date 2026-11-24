@@ -202,6 +202,25 @@ function init(): State {
 		modified: b.lastModified,
 		uuid: i % 2 ? b.uuid : null
 	}));
+	const kindleFiles = (lib: MockBook[]) => {
+		const mk = (title: string, authors: string[], format: string, size: number, uuid: string | null = null): DeviceBook => ({
+			path: `/media/Kindle/documents/${title}.${format.toLowerCase()}`,
+			relPath: `documents/${title}.${format.toLowerCase()}`,
+			title, authors, format, size, modified: "2026-10-12T18:20:00Z", uuid
+		});
+		const mine = lib.slice(6, 9).map((b, i) => mk(b.title, b.authors, ["AZW3", "MOBI", "KFX"][i], b.files[0].size));
+		return [
+			...mine,
+			mk("The Pragmatic Programmer: From Journeyman to Master, 20th Anniversary Edition (Extended Notes and Marginalia)", ["David Thomas", "Andrew Hunt"], "AZW3", 3_400_000),
+			mk("Die Verwandlung", ["Franz Kafka"], "MOBI", 310_000),
+			mk("Dune", ["Frank Herbert"], "KFX", 2_100_000),
+			mk("Pride and Prejudice", ["Jane Austen"], "AZW3", 1_250_000),
+			mk("Sapiens", ["Yuval Noah Harari"], "AZW3", 5_800_000),
+			mk("Clean Architecture", ["Robert C. Martin"], "PDF", 8_900_000),
+			mk("Reisetagebuch_2024_final_v3_korrigiert_mit_allen_bildern_und_karten_komprimiert", [], "PDF", 22_000_000),
+			mk("Meditations", ["Marcus Aurelius"], "EPUB", 480_000)
+		];
+	};
 	return {
 		library: p.noLibrary ? null : lib,
 		recents: [
@@ -218,7 +237,11 @@ function init(): State {
 		progress,
 		reading: new Map(),
 		annotations: [],
-		deviceFiles: new Map([["kobo-libra", dev("kobo")]])
+		deviceFiles: new Map([
+			["kobo-libra", dev("kobo")],
+			["kindle-scribe", kindleFiles(books)],
+			["folder-backup", []]
+		])
 	};
 }
 
@@ -584,30 +607,82 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 			return [
 				{
 					id: "kobo-libra", name: "Kobo Libra Colour", kind: "kobo", root: "/media/reader/KOBOeReader", booksDir: "/media/reader/KOBOeReader/Books",
-					totalBytes: 32e9, freeBytes: 21.4e9, supportedFormats: ["EPUB", "KEPUB", "PDF", "CBZ"]
+					totalBytes: 32e9, freeBytes: 21.4e9, supportedFormats: ["EPUB", "KEPUB", "PDF", "CBZ"],
+					info: [
+						{ label: "Model", value: "Kobo Libra Colour" },
+						{ label: "Firmware", value: "4.40.23081" },
+						{ label: "Serial number", value: "N4281A0123456" }
+					]
+				} satisfies Device,
+				{
+					id: "kindle-scribe", name: "Kindle Scribe", kind: "kindle", root: "/media/Kindle", booksDir: "/media/Kindle/documents",
+					totalBytes: 16e9, freeBytes: 11.8e9, supportedFormats: ["AZW3", "MOBI", "PDF", "TXT"],
+					info: [
+						{ label: "Model", value: "Kindle Scribe (1st generation)" },
+						{ label: "Firmware", value: "5.17.3.1" },
+						{ label: "Serial number", value: "G0Y1 2345 6789 ABCD" },
+						{ label: "File system", value: "exFAT" },
+						{ label: "Mount point", value: "/media/Kindle" },
+						{ label: "Device UUID", value: "9f2c1d7e-3a4b-4c55-8e0a-6b7d1f2e3a49-long-value-example" }
+					]
+				} satisfies Device,
+				{
+					id: "folder-backup", name: "Backup folder", kind: "folder", root: "/mnt/nas/ebook-backup", booksDir: "/mnt/nas/ebook-backup",
+					totalBytes: 500e9, freeBytes: 120e9, supportedFormats: ["EPUB", "PDF", "MOBI", "AZW3"], info: []
 				} satisfies Device
 			];
 		case "add_folder_device": {
 			const id = `folder-${hashString(a.path)}`;
 			s.deviceFiles.set(id, []);
-			return { id, name: baseName(a.path), kind: "folder", root: a.path, booksDir: a.path, totalBytes: 500e9, freeBytes: 120e9, supportedFormats: ["EPUB", "PDF", "MOBI", "AZW3"] } satisfies Device;
+			return { id, name: baseName(a.path), kind: "folder", root: a.path, booksDir: a.path, totalBytes: 500e9, freeBytes: 120e9, supportedFormats: ["EPUB", "PDF", "MOBI", "AZW3"], info: [] } satisfies Device;
 		}
 		case "device_books":
 			return s.deviceFiles.get(a.deviceId) ?? [];
 		case "send_to_device": {
 			await sleep(500);
 			const list = s.deviceFiles.get(a.deviceId) ?? [];
+			const kindle = a.deviceId === "kindle-scribe";
 			const out: SendOutcome[] = (a.ids as number[]).map((id) => {
 				const b = find(s, id);
-				if (b.formats.length === 1 && b.formats[0] === "FB2") return { bookId: id, book: null, error: "no supported format for this device" };
+				if (b.formats.length === 1 && b.formats[0] === "FB2") return { bookId: id, book: null, converted: false, error: "no supported format for this device" };
+				const converted = kindle && !b.formats.includes("AZW3") && !b.formats.includes("MOBI") && !b.formats.includes("PDF");
+				const format = kindle ? (converted ? "AZW3" : b.formats.includes("PDF") ? "PDF" : b.formats[0]) : "EPUB";
+				const ext = format.toLowerCase();
+				const dir = kindle ? "/media/Kindle/documents" : "/media/reader/KOBOeReader/Books";
 				const book: DeviceBook = {
-					path: `/media/reader/KOBOeReader/Books/${b.title}.epub`, relPath: `Books/${b.title}.epub`, title: b.title, authors: b.authors,
-					format: "EPUB", size: b.files[0].size, modified: new Date().toISOString(), uuid: b.uuid
+					path: `${dir}/${b.title}.${ext}`, relPath: `${dir.split("/").pop()}/${b.title}.${ext}`, title: b.title, authors: b.authors,
+					format, size: b.files[0].size, modified: new Date().toISOString(), uuid: b.uuid
 				};
-				list.push(book);
-				return { bookId: id, book, error: null };
+				const at = list.findIndex((x) => x.path === book.path);
+				if (at >= 0) list[at] = book;
+				else list.push(book);
+				return { bookId: id, book, converted, error: null };
 			});
 			s.deviceFiles.set(a.deviceId, list);
+			return out;
+		}
+		case "import_from_device": {
+			await sleep(900);
+			const out: AddOutcome[] = [];
+			for (const path of a.paths as string[]) {
+				const db = (s.deviceFiles.get(a.deviceId) ?? []).find((x) => x.path === path);
+				if (!db || /Kafka|Sapiens/.test(db.title)) {
+					out.push({ path, bookId: null, error: db ? "file is DRM-protected and cannot be read" : "file not found on device" });
+					continue;
+				}
+				const id = s.nextId++;
+				const stamp = new Date().toISOString();
+				const authors = db.authors.length ? db.authors : ["Unknown"];
+				const b: MockBook = {
+					id, title: db.title, sort: sortKey(db.title), authors, authorSort: authors[0], series: null, seriesIndex: 1, tags: [],
+					publisher: null, languages: [], rating: null, formats: [db.format], identifiers: {}, hasCover: false, size: db.size,
+					timestamp: stamp, pubdate: null, lastModified: stamp, comments: null, uuid: crypto.randomUUID(), path: `${authors[0]}/${db.title} (${id})`,
+					files: [{ format: db.format, fileName: db.title, size: db.size }], hay: ""
+				};
+				b.hay = makeHay(b);
+				s.books.push(b);
+				out.push({ path, bookId: id, error: null });
+			}
 			return out;
 		}
 		case "delete_device_book":

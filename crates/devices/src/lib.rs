@@ -2,6 +2,7 @@ mod books;
 mod cache;
 mod detect;
 mod error;
+mod info;
 mod time;
 
 pub use books::{MetaReader, delete_book, list_books, send_book};

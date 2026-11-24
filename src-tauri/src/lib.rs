@@ -44,6 +44,7 @@ pub fn run() {
             commands::add_folder_device,
             commands::device_books,
             commands::send_to_device,
+            commands::import_from_device,
             commands::delete_device_book,
             commands::reading_progress,
             commands::reading_state,

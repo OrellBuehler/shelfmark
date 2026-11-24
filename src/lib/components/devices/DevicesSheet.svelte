@@ -14,10 +14,15 @@
 	import TriangleAlertIcon from "@lucide/svelte/icons/triangle-alert";
 	import BookOpenIcon from "@lucide/svelte/icons/book-open";
 	import XIcon from "@lucide/svelte/icons/x";
+	import BookPlusIcon from "@lucide/svelte/icons/book-plus";
+	import InfoIcon from "@lucide/svelte/icons/info";
+	import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
+	import CopyIcon from "@lucide/svelte/icons/copy";
 	import { open as pickDirectory } from "@tauri-apps/plugin-dialog";
 	import { untrack } from "svelte";
 	import { toast } from "svelte-sonner";
 	import { api, inTauri, type Device, type DeviceBook, type DeviceKind } from "$lib/api";
+	import Check from "../edit/Check.svelte";
 	import { Button } from "$lib/components/ui/button/index.js";
 	import { Skeleton } from "$lib/components/ui/skeleton/index.js";
 	import * as Sheet from "$lib/components/ui/sheet/index.js";
@@ -32,7 +37,10 @@
 	}: { open: boolean; selectedIds: number[]; onchanged?: () => void } = $props();
 
 	type SortKey = "title" | "authors" | "format" | "size";
-	type Outcome = { bookId: number; title: string; error: string | null };
+	type Outcome = { key: string; title: string; error: string | null; note: string | null };
+	type Report = { kind: "send" | "import"; total: number; added: number; rows: Outcome[] };
+
+	const copyProtected = ["AZW", "AZW3", "KFX", "MOBI"];
 
 	const kindLabel: Record<DeviceKind, string> = {
 		kobo: "Kobo",
@@ -55,11 +63,41 @@
 	let sortKey = $state<SortKey>("title");
 	let sortDesc = $state(false);
 	let sending = $state(false);
-	let outcomes = $state<Outcome[] | null>(null);
+	let report = $state<Report | null>(null);
+	let picked = $state<Set<string>>(new Set());
+	let anchor: string | null = null;
+	let importing = $state<string[]>([]);
+	let libraryKeys = $state<Set<string>>(new Set());
+	let detailsOpen = $state(false);
 	let deleting = $state<DeviceBook | null>(null);
 	let booksToken = 0;
 
 	const selected = $derived(devices.find((d) => d.id === selectedId) ?? null);
+
+	function norm(s: string) {
+		return s
+			.normalize("NFD")
+			.replace(/\p{M}/gu, "")
+			.toLowerCase()
+			.replace(/[^\p{L}\p{N}]+/gu, " ")
+			.trim();
+	}
+
+	function matchKey(title: string, authors: string[]) {
+		const a = norm(authors[0] ?? "");
+		return `${norm(title)}|${a === "unknown" || a === "unbekannt" ? "" : a}`;
+	}
+
+	const inLibrary = (b: DeviceBook) => libraryKeys.has(matchKey(b.title, b.authors));
+
+	async function loadLibrary() {
+		try {
+			const list = await api.listBooks();
+			libraryKeys = new Set(list.map((b) => matchKey(b.title, b.authors)));
+		} catch {
+			libraryKeys = new Set();
+		}
+	}
 
 	const visibleBooks = $derived.by(() => {
 		const q = search.trim().toLowerCase();
@@ -89,6 +127,7 @@
 			if (selectedId && !devices.some((d) => d.id === selectedId)) {
 				selectedId = null;
 				books = [];
+				picked = new Set();
 			}
 			if (!selectedId && devices.length === 1) selectDevice(devices[0]);
 		} catch (e) {
@@ -101,7 +140,10 @@
 
 	$effect(() => {
 		if (!open) return;
-		untrack(() => refresh());
+		untrack(() => {
+			refresh();
+			loadLibrary();
+		});
 		const timer = setInterval(refresh, 4000);
 		return () => clearInterval(timer);
 	});
@@ -112,7 +154,11 @@
 		booksError = null;
 		try {
 			const list = await api.deviceBooks(id);
-			if (mine === booksToken) books = list;
+			if (mine === booksToken) {
+				books = list;
+				const paths = new Set(list.map((b) => b.path));
+				picked = new Set([...picked].filter((p) => paths.has(p)));
+			}
 		} catch (e) {
 			if (mine === booksToken) {
 				booksError = String(e);
@@ -128,7 +174,10 @@
 		selectedId = d.id;
 		books = [];
 		search = "";
-		outcomes = null;
+		report = null;
+		picked = new Set();
+		anchor = null;
+		detailsOpen = false;
 		loadBooks(d.id);
 	}
 
@@ -161,21 +210,28 @@
 		const device = selected;
 		const ids = [...selectedIds];
 		sending = true;
-		outcomes = null;
+		report = null;
 		try {
 			const res = await api.sendToDevice(device.id, ids);
 			const list: Outcome[] = await Promise.all(
 				res.map(async (o) => {
-					if (o.book) return { bookId: o.bookId, title: o.book.title, error: null };
+					const key = String(o.bookId);
+					if (o.book)
+						return {
+							key,
+							title: o.book.title,
+							error: null,
+							note: o.converted ? `Converted to ${o.book.format.toUpperCase()}` : null
+						};
 					const title = await api
 						.getBook(o.bookId)
 						.then((b) => b.title)
 						.catch(() => `Book #${o.bookId}`);
-					return { bookId: o.bookId, title, error: o.error ?? "Unknown error" };
+					return { key, title, error: o.error ?? "Unknown error", note: null };
 				})
 			);
-			outcomes = list;
 			const ok = list.filter((o) => !o.error).length;
+			report = { kind: "send", total: list.length, added: ok, rows: list };
 			if (ok === list.length) toast.success(`Sent ${ok} ${ok === 1 ? "book" : "books"} to ${device.name}`);
 			else if (ok) toast.warning(`Sent ${ok} of ${list.length} books`);
 			else toast.error("No books could be sent");
@@ -186,7 +242,76 @@
 		}
 		await refresh();
 		if (selectedId === device.id) await loadBooks(device.id);
+		loadLibrary();
 		onchanged?.();
+	}
+
+	function setPicked(path: string, on: boolean) {
+		const next = new Set(picked);
+		if (on) next.add(path);
+		else next.delete(path);
+		picked = next;
+	}
+
+	function toggle(b: DeviceBook, on: boolean, range: boolean) {
+		const from = range && anchor ? visibleBooks.findIndex((x) => x.path === anchor) : -1;
+		const to = visibleBooks.findIndex((x) => x.path === b.path);
+		if (from >= 0 && to >= 0) {
+			const next = new Set(picked);
+			for (const x of visibleBooks.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+				if (on) next.add(x.path);
+				else next.delete(x.path);
+			}
+			picked = next;
+		} else setPicked(b.path, on);
+		anchor = b.path;
+	}
+
+	function toggleAll(on: boolean) {
+		const next = new Set(picked);
+		for (const b of visibleBooks) {
+			if (on && !inLibrary(b)) next.add(b.path);
+			else if (!on) next.delete(b.path);
+		}
+		picked = next;
+		anchor = null;
+	}
+
+	async function importBooks(paths: string[]) {
+		if (!selected || busy || paths.length === 0) return;
+		const device = selected;
+		const titles = new Map(books.map((b) => [b.path, b.title]));
+		importing = paths;
+		report = null;
+		try {
+			const res = await api.importFromDevice(device.id, paths);
+			const rows: Outcome[] = res.map((o) => ({
+				key: o.path,
+				title: o.error ? (o.path.split(/[\\/]/).pop() ?? o.path) : (titles.get(o.path) ?? o.path),
+				error: o.error,
+				note: null
+			}));
+			const ok = rows.filter((r) => !r.error).length;
+			report = { kind: "import", total: rows.length, added: ok, rows };
+			const done = new Set(res.filter((o) => !o.error).map((o) => o.path));
+			picked = new Set([...picked].filter((p) => !done.has(p)));
+			if (ok === rows.length) toast.success(`Added ${ok} ${ok === 1 ? "book" : "books"} to the library`);
+			else if (ok) toast.warning(`Added ${ok} of ${rows.length} books`);
+			else toast.error("No books could be added");
+		} catch (e) {
+			toast.error(`Import failed: ${e}`);
+		} finally {
+			importing = [];
+		}
+		await loadLibrary();
+		onchanged?.();
+	}
+
+	function copy(value: string) {
+		navigator.clipboard
+			.writeText(value)
+			.then(() => toast.success("Copied"))
+			.catch(() => toast.error("Could not copy"));
 	}
 
 	async function confirmDelete() {
@@ -196,6 +321,7 @@
 		try {
 			await api.deleteDeviceBook(selected.id, book.path);
 			books = books.filter((b) => b.path !== book.path);
+			setPicked(book.path, false);
 			toast.success("Removed from device");
 			refresh();
 			onchanged?.();
@@ -208,9 +334,54 @@
 		return d.totalBytes > 0 ? Math.min(100, Math.max(0, ((d.totalBytes - d.freeBytes) / d.totalBytes) * 100)) : 0;
 	}
 
-	const cols = "grid-cols-[minmax(0,1fr)_7rem_3.25rem_3.75rem_1.75rem]";
-	const failed = $derived(outcomes?.filter((o) => o.error) ?? []);
+	const cols = "grid-cols-[1rem_minmax(0,1fr)_6.5rem_3rem_3.5rem_3.75rem]";
+	const failed = $derived(report?.rows.filter((o) => o.error) ?? []);
+	const selectable = $derived(visibleBooks.filter((b) => !inLibrary(b)));
+	const allPicked = $derived(selectable.length > 0 && selectable.every((b) => picked.has(b.path)));
+	const pickedBooks = $derived(books.filter((b) => picked.has(b.path)));
+	const showKindleHint = $derived(
+		selected?.kind === "kindle" && pickedBooks.some((b) => copyProtected.includes(b.format.toUpperCase()))
+	);
+	const busy = $derived(sending || importing.length > 0);
 </script>
+
+{#snippet infoGrid(d: Device)}
+	{@const collapsible = d.info.length > 4}
+	<div class="border-brand/20 border-t px-3.5 py-2">
+		{#if collapsible}
+			<button
+				type="button"
+				aria-expanded={detailsOpen}
+				class="text-muted-foreground hover:text-foreground flex w-full items-center gap-1 text-xs font-medium"
+				onclick={() => (detailsOpen = !detailsOpen)}
+			>
+				Details
+				<span class="font-normal tabular-nums">{d.info.length}</span>
+				<ChevronDownIcon class={cn("ml-auto size-3.5 transition-transform", detailsOpen && "rotate-180")} />
+			</button>
+		{/if}
+		{#if !collapsible || detailsOpen}
+			<dl class={cn("grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs", collapsible && "mt-1.5")}>
+				{#each d.info as item (item.label)}
+					<div class="group/info col-span-2 grid grid-cols-subgrid items-center">
+						<dt class="text-muted-foreground whitespace-nowrap">{item.label}</dt>
+						<dd class="flex min-w-0 items-center gap-1">
+							<span class="min-w-0 truncate select-all" title={item.value}>{item.value}</span>
+							<button
+								type="button"
+								aria-label="Copy {item.label}"
+								class="text-muted-foreground hover:text-foreground grid size-5 shrink-0 place-items-center rounded opacity-0 transition-opacity group-hover/info:opacity-100 focus-visible:opacity-100"
+								onclick={() => copy(item.value)}
+							>
+								<CopyIcon class="size-3" />
+							</button>
+						</dd>
+					</div>
+				{/each}
+			</dl>
+		{/if}
+	</div>
+{/snippet}
 
 {#snippet sortHead(key: SortKey, text: string, align = "")}
 	<button
@@ -232,13 +403,13 @@
 <Sheet.Root bind:open>
 	<Sheet.Content
 		side="right"
-		class="gap-0 p-0 data-[side=right]:w-[560px] data-[side=right]:max-w-full data-[side=right]:sm:max-w-[560px]"
+		class="gap-0 p-0 data-[side=right]:w-[640px] data-[side=right]:max-w-full data-[side=right]:sm:max-w-[640px]"
 	>
 		<header class="flex items-center gap-2 border-b py-3.5 pr-14 pl-6">
 			<div class="min-w-0 flex-1">
 				<Sheet.Title class="text-base font-semibold">Devices</Sheet.Title>
 				<Sheet.Description class="text-muted-foreground mt-0.5 text-xs">
-					Send books to an e-reader or a folder.
+					Send books to an e-reader or a folder, or copy them back into your library.
 				</Sheet.Description>
 			</div>
 			<Button variant="ghost" size="icon-sm" aria-label="Refresh devices" onclick={() => refresh(true)}>
@@ -276,61 +447,66 @@
 					</Button>
 				</div>
 			{:else}
-				<div class="max-h-[44%] shrink-0 space-y-2 overflow-y-auto border-b p-4">
+				<div class="max-h-[50%] shrink-0 space-y-2 overflow-y-auto border-b p-4">
 					{#each devices as d (d.id)}
 						{@const Icon = d.kind === "folder" ? FolderIcon : d.kind === "generic" ? UsbIcon : TabletIcon}
 						{@const low = d.totalBytes > 0 && d.freeBytes / d.totalBytes < 0.1}
-						<button
-							type="button"
-							aria-pressed={selectedId === d.id}
+						<div
 							class={cn(
-								"w-full rounded-xl border p-3.5 text-left transition-colors",
-								selectedId === d.id
-									? "border-brand bg-brand/10 ring-brand/30 ring-2"
-									: "hover:bg-accent/50 border-border"
+								"rounded-xl border transition-colors",
+								selectedId === d.id ? "border-brand bg-brand/10 ring-brand/30 ring-2" : "hover:bg-accent/50 border-border"
 							)}
-							onclick={() => selectDevice(d)}
 						>
-							<div class="flex items-start gap-3">
-								<div
-									class={cn(
-										"grid size-10 shrink-0 place-items-center rounded-lg",
-										selectedId === d.id ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground"
-									)}
-								>
-									<Icon class="size-5" />
-								</div>
-								<div class="min-w-0 flex-1">
-									<div class="flex items-baseline gap-2">
-										<span class="truncate text-sm font-semibold">{d.name}</span>
-										<span class="text-muted-foreground shrink-0 text-xs">{kindLabel[d.kind]}</span>
+							<button
+								type="button"
+								aria-pressed={selectedId === d.id}
+								class="focus-visible:ring-ring/50 w-full rounded-xl p-3.5 text-left outline-none focus-visible:ring-3"
+								onclick={() => selectDevice(d)}
+							>
+								<div class="flex items-start gap-3">
+									<div
+										class={cn(
+											"grid size-10 shrink-0 place-items-center rounded-lg",
+											selectedId === d.id ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground"
+										)}
+									>
+										<Icon class="size-5" />
 									</div>
-									<p class="text-muted-foreground mt-0.5 truncate font-mono text-[0.7rem]">{d.root}</p>
+									<div class="min-w-0 flex-1">
+										<div class="flex items-baseline gap-2">
+											<span class="truncate text-sm font-semibold">{d.name}</span>
+											<span class="text-muted-foreground shrink-0 text-xs">{kindLabel[d.kind]}</span>
+										</div>
+										<p class="text-muted-foreground mt-0.5 truncate font-mono text-[0.7rem]">{d.root}</p>
+									</div>
 								</div>
-							</div>
-							{#if d.totalBytes > 0}
 								<div class="mt-3">
-									<div class="bg-muted h-1.5 overflow-hidden rounded-full">
-										<div
-											class={cn("h-full rounded-full", low ? "bg-destructive" : "bg-foreground/70")}
-											style="width: {usedPct(d)}%"
-										></div>
+									{#if d.totalBytes > 0}
+										<div class="bg-muted h-1.5 overflow-hidden rounded-full">
+											<div
+												class={cn("h-full rounded-full", low ? "bg-destructive" : "bg-foreground/70")}
+												style="width: {usedPct(d)}%"
+											></div>
+										</div>
+									{/if}
+									<div class="mt-1.5 flex items-center justify-between gap-3">
+										<p class={cn("shrink-0 text-xs tabular-nums", low ? "text-destructive" : "text-muted-foreground")}>
+											{#if d.totalBytes > 0}{humanSize(d.freeBytes)} free of {humanSize(d.totalBytes)}{/if}
+										</p>
+										<div class="flex min-w-0 flex-wrap justify-end gap-1">
+											{#each d.supportedFormats as f (f)}
+												<span class="bg-secondary text-secondary-foreground rounded px-1.5 py-px text-[0.65rem] font-semibold uppercase">
+													{f}
+												</span>
+											{/each}
+										</div>
 									</div>
-									<p class={cn("mt-1 text-xs tabular-nums", low ? "text-destructive" : "text-muted-foreground")}>
-										{humanSize(d.freeBytes)} free of {humanSize(d.totalBytes)}
-									</p>
 								</div>
+							</button>
+							{#if selectedId === d.id && d.info.length > 0}
+								{@render infoGrid(d)}
 							{/if}
-							{#if d.supportedFormats.length}
-								<div class="mt-2.5 flex flex-wrap gap-1">
-									{#each d.supportedFormats as f (f)}
-										<span class="bg-secondary text-secondary-foreground rounded px-1.5 py-px text-[0.65rem] font-semibold uppercase">
-											{f}
-										</span>
-									{/each}
-								</div>
-							{/if}
-						</button>
+						</div>
 					{/each}
 					<Button variant="ghost" size="sm" class="text-muted-foreground" onclick={addFolder}>
 						<FolderIcon />
@@ -345,41 +521,52 @@
 					</div>
 				{/if}
 
-				{#if outcomes}
+				{#if report}
+					{@const rows = report.kind === "send" ? report.rows : failed}
 					<div class="shrink-0 border-b px-5 py-3">
 						<div class="flex items-center gap-2 text-sm font-medium">
 							{#if failed.length === 0}
 								<CircleCheckIcon class="size-4 text-green-600" />
-								Sent {outcomes.length} {outcomes.length === 1 ? "book" : "books"}
+								{report.kind === "send" ? "Sent" : "Added"}
+								{report.total}
+								{report.total === 1 ? "book" : "books"}{report.kind === "import" ? " to the library" : ""}
 							{:else}
 								<CircleAlertIcon class="text-destructive size-4" />
-								Sent {outcomes.length - failed.length} of {outcomes.length}, {failed.length} failed
+								{report.kind === "send" ? "Sent" : "Added"}
+								{report.added} of {report.total}, {failed.length} failed
 							{/if}
 							<button
 								type="button"
 								class="text-muted-foreground hover:text-foreground ml-auto grid size-6 place-items-center rounded"
 								aria-label="Dismiss"
-								onclick={() => (outcomes = null)}
+								onclick={() => (report = null)}
 							>
 								<XIcon class="size-3.5" />
 							</button>
 						</div>
-						<ul class="mt-2 max-h-28 space-y-1 overflow-y-auto text-xs">
-							{#each outcomes as o (o.bookId)}
-								<li class="flex items-start gap-2">
-									{#if o.error}
-										<CircleAlertIcon class="text-destructive mt-px size-3.5 shrink-0" />
-										<span class="min-w-0">
-											<span class="font-medium">{o.title}</span>
-											<span class="text-muted-foreground block break-words">{o.error}</span>
-										</span>
-									{:else}
-										<CircleCheckIcon class="mt-px size-3.5 shrink-0 text-green-600" />
-										<span class="truncate">{o.title}</span>
-									{/if}
-								</li>
-							{/each}
-						</ul>
+						{#if rows.length}
+							<ul class="mt-2 max-h-28 space-y-1 overflow-y-auto text-xs">
+								{#each rows as o (o.key)}
+									<li class="flex items-start gap-2">
+										{#if o.error}
+											<CircleAlertIcon class="text-destructive mt-px size-3.5 shrink-0" />
+											<span class="min-w-0">
+												<span class="block truncate font-medium" title={o.title}>{o.title}</span>
+												<span class="text-muted-foreground block break-words">{o.error}</span>
+											</span>
+										{:else}
+											<CircleCheckIcon class="mt-px size-3.5 shrink-0 text-green-600" />
+											<span class="min-w-0 truncate" title={o.title}>{o.title}</span>
+											{#if o.note}
+												<span class="bg-secondary text-secondary-foreground shrink-0 rounded px-1.5 py-px text-[0.65rem] font-medium">
+													{o.note}
+												</span>
+											{/if}
+										{/if}
+									</li>
+								{/each}
+							</ul>
+						{/if}
 					</div>
 				{/if}
 
@@ -406,13 +593,53 @@
 								/>
 							</div>
 						</div>
-						<div class="grid {cols} items-center gap-3 border-b px-5 py-1.5">
+						<div class="grid {cols} items-center gap-2.5 border-b px-5 py-1.5">
+							<span
+								role="presentation"
+								class="grid place-items-center"
+								title="Select all not yet in the library"
+								onclickcapture={(e) => {
+									e.stopPropagation();
+									if (selectable.length) toggleAll(!allPicked);
+								}}
+							>
+								<Check checked={allPicked} disabled={selectable.length === 0} />
+							</span>
 							{@render sortHead("title", "Title")}
 							{@render sortHead("authors", "Author")}
 							{@render sortHead("format", "Type")}
 							{@render sortHead("size", "Size", "justify-end")}
 							<span></span>
 						</div>
+						{#if picked.size > 0}
+							<div class="bg-muted/50 shrink-0 space-y-1.5 border-b px-5 py-2">
+								<div class="flex items-center gap-3">
+									<span class="text-xs font-medium tabular-nums">{picked.size} selected</span>
+									<button
+										type="button"
+										class="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
+										onclick={() => (picked = new Set())}
+									>
+										Clear
+									</button>
+									<Button class="ml-auto" size="sm" disabled={busy} onclick={() => importBooks([...picked])}>
+										{#if importing.length > 1}
+											<LoaderIcon class="animate-spin" />
+											Adding…
+										{:else}
+											<BookPlusIcon />
+											Add {picked.size} to library
+										{/if}
+									</Button>
+								</div>
+								{#if showKindleHint}
+									<p class="text-muted-foreground flex items-start gap-1.5 text-xs leading-snug">
+										<InfoIcon class="mt-px size-3.5 shrink-0" />
+										Books bought from the Kindle store are copy-protected and may not open after copying.
+									</p>
+								{/if}
+							</div>
+						{/if}
 						<div class="min-h-0 flex-1 overflow-y-auto">
 							{#if booksLoading && books.length === 0}
 								<div class="space-y-3 p-5">
@@ -432,23 +659,66 @@
 								<p class="text-muted-foreground p-8 text-center text-sm">No books match “{search}”.</p>
 							{:else}
 								{#each visibleBooks as b (b.path)}
+									{@const lib = inLibrary(b)}
+									{@const on = picked.has(b.path)}
+									{@const adding = importing.includes(b.path)}
 									<div
-										class="group hover:bg-accent/50 grid {cols} items-center gap-3 px-5 py-1.5 text-sm [content-visibility:auto] [contain-intrinsic-size:auto_2rem]"
+										class={cn(
+											"group hover:bg-accent/50 grid items-center gap-2.5 px-5 py-1.5 text-sm [content-visibility:auto] [contain-intrinsic-size:auto_2rem]",
+											cols,
+											on && "bg-accent/40"
+										)}
 									>
-										<span class="truncate" title={b.title}>{b.title}</span>
+										<span
+											role="presentation"
+											class="grid place-items-center"
+											onclickcapture={(e) => {
+												e.stopPropagation();
+												toggle(b, !on, e.shiftKey);
+											}}
+										>
+											<Check checked={on} />
+										</span>
+										<span class="flex min-w-0 items-center gap-1.5">
+											<span class={cn("truncate", lib && !on && "text-muted-foreground")} title={b.title}>{b.title}</span>
+											{#if lib}
+												<span class="bg-secondary text-muted-foreground shrink-0 rounded px-1.5 py-px text-[0.65rem] font-medium">
+													In library
+												</span>
+											{/if}
+										</span>
 										<span class="text-muted-foreground truncate text-xs" title={b.authors.join(", ")}>
 											{b.authors.join(", ") || "—"}
 										</span>
 										<span class="text-muted-foreground text-xs uppercase">{b.format}</span>
 										<span class="text-muted-foreground text-right text-xs tabular-nums">{humanSize(b.size)}</span>
-										<button
-											type="button"
-											aria-label="Delete {b.title} from device"
-											class="text-muted-foreground hover:text-destructive grid size-7 place-items-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-											onclick={() => (deleting = b)}
-										>
-											<Trash2Icon class="size-3.5" />
-										</button>
+										<span class="flex justify-end">
+											{#if adding}
+												<span class="text-muted-foreground grid size-7 place-items-center">
+													<LoaderIcon class="size-3.5 animate-spin" />
+												</span>
+											{:else}
+												<button
+													type="button"
+													aria-label="Add {b.title} to library"
+													title="Add to library"
+													disabled={busy}
+													class="text-muted-foreground hover:text-foreground grid size-7 place-items-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 disabled:pointer-events-none"
+													onclick={() => importBooks([b.path])}
+												>
+													<BookPlusIcon class="size-3.5" />
+												</button>
+											{/if}
+											<button
+												type="button"
+												aria-label="Delete {b.title} from device"
+												title="Delete from device"
+												class="text-muted-foreground hover:text-destructive grid size-7 place-items-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+												onclick={() => (deleting = b)}
+											>
+												<Trash2Icon class="size-3.5" />
+											</button>
+										</span>
 									</div>
 								{/each}
 							{/if}
@@ -466,16 +736,20 @@
 					</div>
 				{/if}
 				{#if selectedIds.length > 0}
-					<Button class="w-full" size="lg" disabled={!selected || sending} onclick={send}>
+					<Button class="w-full" size="lg" disabled={!selected || busy} onclick={send}>
 						{#if sending}
 							<LoaderIcon class="animate-spin" />
-							Sending {selectedIds.length} {selectedIds.length === 1 ? "book" : "books"}…
+							Sending…
 						{:else}
 							<SendIcon />
 							Send {selectedIds.length} selected {selectedIds.length === 1 ? "book" : "books"}{selected ? ` to ${selected.name}` : ""}
 						{/if}
 					</Button>
-					{#if !selected}
+					{#if sending}
+						<p class="text-muted-foreground mt-2 text-center text-xs">
+							Sending {selectedIds.length} {selectedIds.length === 1 ? "book" : "books"}. Books may be converted first, which can take a few seconds each.
+						</p>
+					{:else if !selected}
 						<p class="text-muted-foreground mt-2 text-center text-xs">Select a device above to send to.</p>
 					{/if}
 				{:else}

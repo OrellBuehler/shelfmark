@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use shelfmark_model::{Device, DeviceKind};
 
 use crate::error::{Error, Result};
+use crate::info;
 
 const KOBO_FORMATS: &[&str] = &["KEPUB", "EPUB", "PDF", "MOBI", "CBZ", "CBR", "TXT"];
 const KINDLE_FORMATS: &[&str] = &[
@@ -144,6 +145,7 @@ fn build(
         total_bytes,
         free_bytes,
         supported_formats: strings(formats),
+        info: Vec::new(),
     }
 }
 
@@ -155,6 +157,18 @@ pub fn space(root: &Path) -> (u64, u64) {
 }
 
 pub fn probe(root: &Path, label: Option<&str>) -> Option<Device> {
+    probe_fs(root, label, None)
+}
+
+fn probe_fs(root: &Path, label: Option<&str>, fs_type: Option<&str>) -> Option<Device> {
+    let mut device = probe_kind(root, label)?;
+    if let Some(fs) = fs_type.and_then(info::file_system) {
+        info::insert_file_system(&mut device.info, fs);
+    }
+    Some(device)
+}
+
+fn probe_kind(root: &Path, label: Option<&str>) -> Option<Device> {
     if !root.is_dir() {
         return None;
     }
@@ -165,7 +179,7 @@ pub fn probe(root: &Path, label: Option<&str>) -> Option<Device> {
     if kobo.is_dir() && (kobo.join("KoboReader.sqlite").is_file() || kobo.join("version").is_file())
     {
         let model = kobo_model_id(root).as_deref().and_then(kobo_model);
-        return Some(match model {
+        let mut device = match model {
             Some((name, true)) => build(
                 root,
                 DeviceKind::Tolino,
@@ -187,20 +201,24 @@ pub fn probe(root: &Path, label: Option<&str>) -> Option<Device> {
                 root.into(),
                 KOBO_FORMATS,
             ),
-        });
+        };
+        device.info = info::kobo(root, model.map(|(name, _)| name));
+        return Some(device);
     }
 
     if let (Some(docs), Some(_)) = (find_dir(root, "documents"), find_dir(root, "system"))
         && find_dir(&root.join("system"), "config").is_none()
         && !label_has(label, "pocketbook")
     {
-        return Some(build(
+        let mut device = build(
             root,
             DeviceKind::Kindle,
             "Kindle".into(),
-            docs,
+            docs.clone(),
             KINDLE_FORMATS,
-        ));
+        );
+        device.info = info::kindle(root, &docs);
+        return Some(device);
     }
 
     let system = root.join("system");
@@ -282,6 +300,26 @@ pub fn detect_roots(candidates: &[(PathBuf, Option<String>)]) -> Vec<Device> {
     out
 }
 
+fn detect_candidates(candidates: &[Candidate]) -> Vec<Device> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for c in candidates {
+        if !seen.insert(c.root.clone()) {
+            continue;
+        }
+        if let Some(d) = probe_fs(&c.root, c.label.as_deref(), c.fs_type.as_deref()) {
+            out.push(d);
+        }
+    }
+    out
+}
+
+struct Candidate {
+    root: PathBuf,
+    label: Option<String>,
+    fs_type: Option<String>,
+}
+
 fn unescape_mount(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
@@ -324,21 +362,34 @@ fn children(dir: &Path) -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
-fn candidate_roots() -> Vec<(PathBuf, Option<String>)> {
-    let mut list: Vec<(PathBuf, Option<String>)> = Vec::new();
+fn plain(root: PathBuf) -> Candidate {
+    Candidate {
+        root,
+        label: None,
+        fs_type: None,
+    }
+}
+
+fn candidate_roots() -> Vec<Candidate> {
+    let mut list: Vec<Candidate> = Vec::new();
 
     if let Ok(disks) = sysinfo::Disks::new_with_refreshed_list() {
         for d in disks.iter() {
             let name = d.name().to_string_lossy().into_owned();
             let label = (!name.is_empty() && !name.starts_with("/dev")).then_some(name);
-            list.push((d.mount_point().to_path_buf(), label));
+            let fs_type = Some(d.file_system().to_string_lossy().into_owned());
+            list.push(Candidate {
+                root: d.mount_point().to_path_buf(),
+                label,
+                fs_type,
+            });
         }
     }
 
     #[cfg(target_os = "linux")]
     {
         if let Ok(text) = fs::read_to_string("/proc/mounts") {
-            list.extend(parse_proc_mounts(&text).into_iter().map(|p| (p, None)));
+            list.extend(parse_proc_mounts(&text).into_iter().map(plain));
         }
         let mut dirs = children(Path::new("/media"));
         for user in children(Path::new("/media"))
@@ -348,18 +399,14 @@ fn candidate_roots() -> Vec<(PathBuf, Option<String>)> {
             dirs.extend(children(user));
         }
         dirs.extend(children(Path::new("/mnt")));
-        list.extend(dirs.into_iter().map(|p| (p, None)));
+        list.extend(dirs.into_iter().map(plain));
     }
 
     #[cfg(target_os = "macos")]
-    list.extend(
-        children(Path::new("/Volumes"))
-            .into_iter()
-            .map(|p| (p, None)),
-    );
+    list.extend(children(Path::new("/Volumes")).into_iter().map(plain));
 
     let system_drive = std::env::var("SystemDrive").ok();
-    list.retain(|(p, _)| {
+    list.retain(|Candidate { root: p, .. }| {
         if p.parent().is_none() && cfg!(unix) {
             return false;
         }
@@ -375,16 +422,16 @@ fn candidate_roots() -> Vec<(PathBuf, Option<String>)> {
         true
     });
 
-    for (p, label) in &mut list {
-        if label.is_none() {
-            *label = p.file_name().map(|n| n.to_string_lossy().into_owned());
+    for c in &mut list {
+        if c.label.is_none() {
+            c.label = c.root.file_name().map(|n| n.to_string_lossy().into_owned());
         }
     }
     list
 }
 
 pub fn detect() -> Vec<Device> {
-    detect_roots(&candidate_roots())
+    detect_candidates(&candidate_roots())
 }
 
 #[cfg(test)]

@@ -184,6 +184,15 @@ pub struct Device {
     pub total_bytes: u64,
     pub free_bytes: u64,
     pub supported_formats: Vec<String>,
+    #[serde(default)]
+    pub info: Vec<DeviceInfo>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceInfo {
+    pub label: String,
+    pub value: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]

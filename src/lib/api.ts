@@ -160,6 +160,12 @@ export interface Device {
 	totalBytes: number;
 	freeBytes: number;
 	supportedFormats: string[];
+	info: DeviceInfo[];
+}
+
+export interface DeviceInfo {
+	label: string;
+	value: string;
 }
 
 export interface DeviceBook {
@@ -176,6 +182,7 @@ export interface DeviceBook {
 export interface SendOutcome {
 	bookId: BookId;
 	book: DeviceBook | null;
+	converted: boolean;
 	error: string | null;
 }
 
@@ -238,6 +245,8 @@ export const api = {
 	deviceBooks: (deviceId: string) => invoke<DeviceBook[]>("device_books", { deviceId }),
 	sendToDevice: (deviceId: string, ids: BookId[]) =>
 		invoke<SendOutcome[]>("send_to_device", { deviceId, ids }),
+	importFromDevice: (deviceId: string, paths: string[]) =>
+		invoke<AddOutcome[]>("import_from_device", { deviceId, paths }),
 	deleteDeviceBook: (deviceId: string, path: string) =>
 		invoke<void>("delete_device_book", { deviceId, path }),
 
