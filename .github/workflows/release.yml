@@ -19,13 +19,13 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            args: ""
+            args: --config src-tauri/tauri.release.conf.json
           - os: ubuntu-22.04
-            args: ""
+            args: --config src-tauri/tauri.release.conf.json
           - os: macos-latest
-            args: --target aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --config src-tauri/tauri.release.conf.json
           - os: macos-latest
-            args: --target x86_64-apple-darwin
+            args: --target x86_64-apple-darwin --config src-tauri/tauri.release.conf.json
     runs-on: ${{ matrix.os }}
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
@@ -53,6 +53,8 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ env.TAG }}
           tauriScript: bun run tauri
@@ -62,6 +64,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHELFMARK_PORTABLE: 1
         run: |
+          bun run tauri build --no-bundle
           cp target/release/shelfmark.exe Shelfmark-portable-x64.exe
           gh release upload "$TAG" Shelfmark-portable-x64.exe --clobber

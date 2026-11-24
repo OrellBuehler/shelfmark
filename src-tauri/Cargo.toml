@@ -25,3 +25,4 @@ shelfmark-devices.workspace = true
 shelfmark-reading.workspace = true
 shelfmark-convert.workspace = true
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+tauri-plugin-updater = "2"

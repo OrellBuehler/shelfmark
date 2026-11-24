@@ -2,6 +2,7 @@
 	import LoaderCircle from "@lucide/svelte/icons/loader-circle";
 	import { formatSize, plural } from "$lib/format";
 	import { lib } from "$lib/stores/library.svelte";
+	import { updater } from "$lib/updater.svelte";
 
 	const active = $derived(lib.busy > 0 || lib.loading);
 </script>
@@ -22,6 +23,22 @@
 		{/if}
 		{#if lib.info}
 			<span class="truncate" title={lib.info.path}>{lib.info.path}</span>
+		{/if}
+		{#if updater.current}
+			<button
+				type="button"
+				class="flex shrink-0 items-center gap-1.5 rounded px-1 tabular-nums hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+				title={updater.available ? `Update to ${updater.available.version}` : "Check for updates"}
+				disabled={updater.checking}
+				onclick={() => updater.check(true)}
+			>
+				{#if updater.available}
+					<span class="size-1.5 rounded-full bg-brand"></span>
+					<span class="text-foreground">Update available</span>
+				{:else}
+					v{updater.current}
+				{/if}
+			</button>
 		{/if}
 	</span>
 </footer>

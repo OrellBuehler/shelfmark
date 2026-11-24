@@ -482,3 +482,13 @@ pub fn save_annotation(state: State<AppState>, annotation: Annotation) -> R<()> 
 pub fn delete_annotation(state: State<AppState>, id: String) -> R<()> {
     state.current()?.reading.delete_annotation(&id).map_err(e)
 }
+
+#[tauri::command]
+pub fn is_portable() -> bool {
+    option_env!("SHELFMARK_PORTABLE").is_some()
+}
+
+#[tauri::command]
+pub fn restart(app: AppHandle) {
+    app.restart()
+}

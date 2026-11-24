@@ -62,6 +62,8 @@ Reading positions, highlights and notes are stored in a separate `shelfmark.db` 
 
 Installers for Windows, macOS and Linux, plus a portable Windows build, are attached to each [release](https://github.com/OrellBuehler/shelfmark/releases).
 
+Shelfmark checks the GitHub releases for a new version on startup and offers to install it. Click the version number in the status bar to check by hand. The portable Windows build cannot replace itself and links to the download page instead.
+
 To use Google Books as a metadata source, set `SHELFMARK_GOOGLE_BOOKS_KEY` to your API key.
 
 ## Development
@@ -79,7 +81,9 @@ cargo test --workspace
 bun run tauri build
 ```
 
-`bun run dev` runs the interface in a browser against an in-memory mock library, no Rust build required.
+`bun run dev` runs the interface in a browser against an in-memory mock library, no Rust build required. Add `?update` to the URL to preview the update dialog.
+
+Release builds are made by `.github/workflows/release.yml` when a GitHub release is published. It signs the update packages with the `TAURI_SIGNING_PRIVATE_KEY` repository secret; the matching public key is in `src-tauri/tauri.conf.json`.
 
 ## Layout
 
