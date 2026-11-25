@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 shelfmark-model.workspace = true
+shelfmark-reading.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -18,6 +19,5 @@ fs4 = "1"
 blake3 = "1.8.7"
 
 [dev-dependencies]
-shelfmark-reading.workspace = true
 rusqlite = { version = "0.41", features = ["bundled"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }

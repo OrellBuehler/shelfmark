@@ -21,8 +21,7 @@ impl ReadingStore {
         std::fs::create_dir_all(library_dir)?;
         let conn = Connection::open(library_dir.join("shelfmark.db"))?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        set_journal_mode(&conn, library_dir)?;
         migrate(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -153,6 +152,44 @@ impl ReadingStore {
         tx.commit()?;
         Ok(())
     }
+}
+
+#[cfg(windows)]
+pub fn is_network_path(path: &Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::{Component, Prefix};
+    let full = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let Some(Component::Prefix(prefix)) = full.components().next() else {
+        return false;
+    };
+    match prefix.kind() {
+        Prefix::UNC(..) | Prefix::VerbatimUNC(..) => true,
+        Prefix::Disk(_) | Prefix::VerbatimDisk(_) => {
+            let mut root: Vec<u16> = prefix.as_os_str().encode_wide().collect();
+            root.extend([b'\\' as u16, 0]);
+            const DRIVE_REMOTE: u32 = 4;
+            unsafe { windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(root.as_ptr()) == DRIVE_REMOTE }
+        }
+        _ => false,
+    }
+}
+
+#[cfg(not(windows))]
+pub fn is_network_path(_path: &Path) -> bool {
+    false
+}
+
+pub fn set_journal_mode(conn: &Connection, library_dir: &Path) -> rusqlite::Result<()> {
+    let wanted = if is_network_path(library_dir) {
+        "DELETE"
+    } else {
+        "WAL"
+    };
+    let mode: String = conn.query_row(&format!("PRAGMA journal_mode = {wanted}"), [], |r| r.get(0))?;
+    if !mode.eq_ignore_ascii_case(wanted) && wanted == "WAL" {
+        conn.query_row("PRAGMA journal_mode = DELETE", [], |r| r.get::<_, String>(0))?;
+    }
+    conn.pragma_update(None, "synchronous", "NORMAL")
 }
 
 fn migrate(conn: &Connection) -> Result<()> {

@@ -158,8 +158,7 @@ impl AudioStore {
         std::fs::create_dir_all(library_dir)?;
         let conn = Connection::open(library_dir.join("shelfmark.db"))?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        shelfmark_reading::set_journal_mode(&conn, library_dir)?;
         conn.pragma_update(None, "foreign_keys", true)?;
         migrate(&conn)?;
         Ok(Self {
