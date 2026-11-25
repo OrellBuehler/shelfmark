@@ -47,8 +47,8 @@
 		onfocus={() => (focused = true)}
 		onblur={() => (focused = false)}
 		{onkeydown}
-		placeholder="Search books"
-		aria-label="Search books"
+		placeholder={lib.scope === "audiobooks" ? "Search audiobooks" : "Search books"}
+		aria-label={lib.scope === "audiobooks" ? "Search audiobooks" : "Search books"}
 		spellcheck="false"
 		autocomplete="off"
 		class="h-8 w-full min-w-0 rounded-md border border-input bg-muted/50 pr-16 pl-8 text-sm outline-none select-text placeholder:text-muted-foreground focus-visible:border-ring focus-visible:bg-background focus-visible:ring-3 focus-visible:ring-ring/30 dark:bg-input/30"

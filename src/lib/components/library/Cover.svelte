@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { coverSrc, placeholderHue } from "#lib/covers";
-	import type { BookSummary } from "#lib/api";
+	import { entryHasCover, type BookSummary } from "#lib/api";
 	import { cn } from "#lib/utils";
 
 	let {
@@ -9,7 +9,7 @@
 		eager = false,
 		class: className
 	}: {
-		book: Pick<BookSummary, "id" | "lastModified" | "title" | "authors" | "hasCover">;
+		book: Pick<BookSummary, "id" | "lastModified" | "title" | "authors" | "hasCover" | "kind" | "audiobookId" | "pairedBookId">;
 		width?: number;
 		eager?: boolean;
 		class?: string;
@@ -19,7 +19,7 @@
 	let loaded = $state(false);
 	const hue = $derived(placeholderHue(book.title));
 	const src = $derived(coverSrc(book, width));
-	const showImage = $derived(book.hasCover && !failed);
+	const showImage = $derived(entryHasCover(book) && !failed);
 
 	$effect(() => {
 		void src;

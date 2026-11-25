@@ -19,7 +19,9 @@
 		languages: "Languages",
 		formats: "Formats",
 		rating: "Rating",
-		identifiers: "Identifiers"
+		identifiers: "Identifiers",
+		audio: "Formats owned",
+		narrators: "Narrators"
 	};
 	const ROW = 30;
 

@@ -1,7 +1,9 @@
 <script lang="ts">
-	import type { BookSummary } from "#lib/api";
+	import { isAudioEntry, type BookSummary } from "#lib/api";
+	import { formatDuration } from "#lib/format";
 	import { lib } from "#lib/stores/library.svelte";
 	import { cn } from "#lib/utils";
+	import AudioBadge from "./AudioBadge.svelte";
 	import Cover from "./Cover.svelte";
 
 	let {
@@ -14,6 +16,7 @@
 	const selected = $derived(lib.selected.has(book.id));
 	const progress = $derived(lib.progress[book.id] ?? 0);
 	const shown = $derived(book.formats.slice(0, 3));
+	const audioEntry = $derived(isAudioEntry(book));
 
 	function onclick(e: MouseEvent) {
 		lib.selectIndex(index, { shift: e.shiftKey, toggle: e.ctrlKey || e.metaKey });
@@ -31,7 +34,7 @@
 		selected ? "bg-brand/20 dark:bg-brand/15" : "hover:bg-accent/70"
 	)}
 	{onclick}
-	ondblclick={() => lib.readBook(book)}
+	ondblclick={() => lib.openEntry(book)}
 >
 	<div
 		class={cn(
@@ -47,6 +50,9 @@
 				#{book.seriesIndex}
 			</span>
 		{/if}
+		{#if book.audio}
+			<AudioBadge {book} overlay class="pointer-events-none absolute top-1.5 right-1.5" />
+		{/if}
 		<div class="pointer-events-none absolute inset-x-1.5 bottom-1.5 flex flex-wrap gap-1">
 			{#each shown as f (f)}
 				<span
@@ -57,6 +63,15 @@
 			{#if book.formats.length > shown.length}
 				<span class="rounded bg-black/60 px-1 py-px text-[9px] leading-tight font-semibold text-white/95 backdrop-blur-sm"
 					>+{book.formats.length - shown.length}</span
+				>
+			{/if}
+			{#if audioEntry && book.audio}
+				<span
+					class="rounded bg-black/60 px-1 py-px text-[9px] leading-tight font-semibold tracking-wide text-white/95 uppercase backdrop-blur-sm"
+					>{book.audio.format}</span
+				>
+				<span class="rounded bg-black/60 px-1 py-px text-[9px] leading-tight font-semibold text-white/95 backdrop-blur-sm"
+					>{formatDuration(book.audio.durationMs)}</span
 				>
 			{/if}
 		</div>

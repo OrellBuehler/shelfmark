@@ -10,6 +10,7 @@
 	import BookArea from "#lib/components/library/BookArea.svelte";
 	import DetailsPanel from "#lib/components/library/DetailsPanel.svelte";
 	import FilterChips from "#lib/components/library/FilterChips.svelte";
+	import SettingsDialog from "#lib/components/library/SettingsDialog.svelte";
 	import Sidebar from "#lib/components/library/Sidebar.svelte";
 	import StatusBar from "#lib/components/library/StatusBar.svelte";
 	import TopBar from "#lib/components/library/TopBar.svelte";
@@ -103,7 +104,7 @@
 			lib.scrollTo?.(i);
 		} else if (e.key === "Enter") {
 			e.preventDefault();
-			lib.readSelected();
+			lib.openSelected();
 		} else if (key === "e") {
 			e.preventDefault();
 			lib.editSelected();
@@ -177,11 +178,12 @@
 	<EditMetadataDialog bind:open={lib.editOpen} bookId={lib.editId} onsaved={() => lib.reload()} />
 	<BulkEditDialog bind:open={lib.bulkOpen} bookIds={lib.bulkIds} onsaved={() => lib.reload()} />
 	<DevicesSheet bind:open={lib.devicesOpen} selectedIds={lib.selectedIds} onchanged={() => lib.reload()} />
+	<SettingsDialog bind:open={lib.settingsOpen} />
 
 	<AlertDialog.Root bind:open={lib.metaOpen}>
 		<AlertDialog.Content>
 			<AlertDialog.Header>
-				<AlertDialog.Title>Download metadata for {plural(lib.selected.size, "book")}?</AlertDialog.Title>
+				<AlertDialog.Title>Download metadata for {plural(lib.selectedIds.length, "book")}?</AlertDialog.Title>
 				<AlertDialog.Description>
 					Title, authors, description, tags, publisher, date, languages and cover are replaced with what Open Library
 					and Google Books return. Books without a confident match are left unchanged. Your ratings are kept.
@@ -200,12 +202,18 @@
 	<AlertDialog.Root bind:open={lib.deleteOpen}>
 		<AlertDialog.Content>
 			<AlertDialog.Header>
-				<AlertDialog.Title>Delete {plural(lib.selected.size, "book")}?</AlertDialog.Title>
+				<AlertDialog.Title>Delete {plural(lib.selectedIds.length, "book")}?</AlertDialog.Title>
 				<AlertDialog.Description>
-					{#if lib.selectedBooks.length === 1}
-						"{lib.selectedBooks[0].title}" and its files will be moved to the library's trash.
+					{#if lib.selectedEbooks.length === 1}
+						"{lib.selectedEbooks[0].title}" and its files will be moved to the library's trash.
 					{:else}
 						The selected books and all their files will be moved to the library's trash.
+					{/if}
+					{#if lib.selectedEbooks.some((b) => b.audio)}
+						Linked audiobooks are not deleted.
+					{/if}
+					{#if lib.selectedEbooks.length < lib.selected.size}
+						Selected audiobooks without an ebook are left alone.
 					{/if}
 				</AlertDialog.Description>
 			</AlertDialog.Header>

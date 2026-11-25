@@ -6,12 +6,14 @@
 	import Pencil from "@lucide/svelte/icons/pencil";
 	import Send from "@lucide/svelte/icons/send";
 	import Trash from "@lucide/svelte/icons/trash";
-	import { api, type Book } from "#lib/api";
+	import { api, isAudioEntry, type Book } from "#lib/api";
 	import { Button } from "#lib/components/ui/button";
 	import { identifierLinks, formatDate, formatDateTime, formatSize, languageName, plural } from "#lib/format";
 	import { openLink } from "#lib/links";
 	import { sanitizeHtml } from "#lib/sanitize";
 	import { lib } from "#lib/stores/library.svelte";
+	import AudiobookDetails from "./AudiobookDetails.svelte";
+	import AudiobookSection from "./AudiobookSection.svelte";
 	import Cover from "./Cover.svelte";
 	import Stars from "./Stars.svelte";
 
@@ -24,7 +26,7 @@
 	$effect(() => {
 		const k = key;
 		const id = summary?.id;
-		if (k === null || id === undefined) {
+		if (k === null || id === undefined || (summary && isAudioEntry(summary))) {
 			detail = null;
 			return;
 		}
@@ -45,6 +47,7 @@
 	const ids = $derived(book ? identifierLinks(book.identifiers) : []);
 	const fileMap = $derived(new Map((book?.files ?? []).map((f) => [f.format.toUpperCase(), f])));
 	const stack = $derived(lib.selectedBooks.slice(0, 4));
+	const noun = $derived(lib.selectedEbooks.length === lib.selected.size ? "book" : lib.selectedEbooks.length ? "item" : "audiobook");
 
 	function onLinkClick(e: MouseEvent) {
 		const a = (e.target as HTMLElement).closest("a");
@@ -55,7 +58,11 @@
 </script>
 
 <aside class="thin-scroll flex h-full flex-col overflow-y-auto bg-background text-sm" aria-label="Book details">
-	{#if summary}
+	{#if summary && isAudioEntry(summary)}
+		{#key summary.id}
+			<AudiobookDetails entry={summary} />
+		{/key}
+	{:else if summary}
 		<div class="flex flex-col gap-5 p-4 select-text">
 			<div class="flex justify-center rounded-xl bg-muted/50 px-6 py-5">
 				<div class="w-full max-w-[200px] shadow-lg shadow-black/20">
@@ -195,6 +202,10 @@
 				</ul>
 			</section>
 
+			{#if summary.audio}
+				<AudiobookSection {summary} />
+			{/if}
+
 			{#if book}
 				<div class="flex items-start gap-2 text-xs text-muted-foreground">
 					<button
@@ -224,13 +235,15 @@
 				{/each}
 			</div>
 			<div class="text-center">
-				<h2 class="text-lg font-semibold">{plural(lib.selected.size, "book")} selected</h2>
+				<h2 class="text-lg font-semibold">{plural(lib.selected.size, noun)} selected</h2>
 				<p class="mt-0.5 text-[13px] text-muted-foreground tabular-nums">{formatSize(lib.selectedSize)} in total</p>
 			</div>
 			<div class="flex flex-col gap-2">
-				<Button onclick={() => lib.editSelected()}><Pencil />Edit {lib.selected.size} books</Button>
-				<Button variant="outline" onclick={() => lib.sendSelected()}><Send />Send to device</Button>
-				<Button variant="destructive" onclick={() => lib.askDelete()}><Trash />Delete</Button>
+				{#if lib.selectedIds.length}
+					<Button onclick={() => lib.editSelected()}><Pencil />Edit {plural(lib.selectedIds.length, "book")}</Button>
+					<Button variant="outline" onclick={() => lib.sendSelected()}><Send />Send to device</Button>
+					<Button variant="destructive" onclick={() => lib.askDelete()}><Trash />Delete</Button>
+				{/if}
 			</div>
 		</div>
 	{:else}
@@ -240,43 +253,3 @@
 		</div>
 	{/if}
 </aside>
-
-<style>
-	.comments :global(p) {
-		margin-bottom: 0.6em;
-	}
-	.comments :global(p:last-child) {
-		margin-bottom: 0;
-	}
-	.comments :global(ul) {
-		list-style: disc;
-		padding-left: 1.2em;
-		margin: 0.5em 0;
-	}
-	.comments :global(ol) {
-		list-style: decimal;
-		padding-left: 1.2em;
-		margin: 0.5em 0;
-	}
-	.comments :global(h1),
-	.comments :global(h2),
-	.comments :global(h3),
-	.comments :global(h4) {
-		font-weight: 600;
-		margin: 0.8em 0 0.3em;
-	}
-	.comments :global(blockquote) {
-		border-left: 2px solid var(--border);
-		padding-left: 0.8em;
-		color: var(--muted-foreground);
-	}
-	.comments :global(a) {
-		text-decoration: underline;
-		text-underline-offset: 2px;
-		cursor: pointer;
-	}
-	.comments :global(b),
-	.comments :global(strong) {
-		font-weight: 600;
-	}
-</style>

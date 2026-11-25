@@ -3,12 +3,15 @@
 	import BookPlus from "@lucide/svelte/icons/book-plus";
 	import ExternalLink from "@lucide/svelte/icons/external-link";
 	import FolderOpen from "@lucide/svelte/icons/folder-open";
+	import Headphones from "@lucide/svelte/icons/headphones";
 	import Pencil from "@lucide/svelte/icons/pencil";
 	import SearchX from "@lucide/svelte/icons/search-x";
 	import Send from "@lucide/svelte/icons/send";
+	import Settings from "@lucide/svelte/icons/settings";
 	import Sparkles from "@lucide/svelte/icons/sparkles";
 	import Trash from "@lucide/svelte/icons/trash";
 	import FileDown from "@lucide/svelte/icons/file-down";
+	import { isAudioEntry } from "#lib/api";
 	import { Button } from "#lib/components/ui/button";
 	import * as ContextMenu from "#lib/components/ui/context-menu";
 	import { Skeleton } from "#lib/components/ui/skeleton";
@@ -19,6 +22,9 @@
 	const single = $derived(lib.selected.size === 1);
 	const first = $derived(lib.selectedBooks[0]);
 	const count = $derived(lib.selected.size);
+	const ebooks = $derived(lib.selectedIds.length);
+	const audioEntry = $derived(!!first && isAudioEntry(first));
+	const playable = $derived(single && !!first && first.audiobookId !== null);
 
 	function oncontextmenu(e: MouseEvent) {
 		const target = (e.target as HTMLElement).closest<HTMLElement>("[data-book-id]");
@@ -48,6 +54,13 @@
 				</p>
 			</div>
 			<Button variant="outline" size="sm" onclick={() => lib.clearAll()}>Clear search</Button>
+		{:else if lib.scope === "audiobooks"}
+			<div class="flex size-12 items-center justify-center rounded-full bg-brand/20"><Headphones class="size-5 text-brand-foreground dark:text-brand" /></div>
+			<div>
+				<h2 class="text-base font-semibold">No audiobooks yet</h2>
+				<p class="mt-1 max-w-sm text-sm text-muted-foreground">Scan your audiobook locations to find audiobooks.</p>
+			</div>
+			<Button size="sm" onclick={() => (lib.settingsOpen = true)}><Settings />Open settings</Button>
 		{:else}
 			<div class="flex size-12 items-center justify-center rounded-full bg-brand/20"><BookPlus class="size-5 text-brand-foreground dark:text-brand" /></div>
 			<div>
@@ -69,27 +82,39 @@
 		<ContextMenu.Content class="w-60">
 			{#if count}
 				{#if count > 1}
-					<ContextMenu.Label class="px-2 py-1 text-xs font-normal text-muted-foreground">{count} books selected</ContextMenu.Label>
+					<ContextMenu.Label class="px-2 py-1 text-xs font-normal text-muted-foreground">{count} selected</ContextMenu.Label>
 				{/if}
-				<ContextMenu.Item disabled={!single} onSelect={() => lib.readSelected()}>
-					<BookOpen />Read<ContextMenu.Shortcut>Enter</ContextMenu.Shortcut>
-				</ContextMenu.Item>
-				<ContextMenu.Item disabled={!single} onSelect={() => first && lib.openExternally(first)}>
-					<ExternalLink />Open with system app
-				</ContextMenu.Item>
-				<ContextMenu.Separator />
-				<ContextMenu.Item onSelect={() => lib.editSelected()}>
-					<Pencil />{single ? "Edit metadata" : `Edit ${count} books`}<ContextMenu.Shortcut>E</ContextMenu.Shortcut>
-				</ContextMenu.Item>
-				<ContextMenu.Item onSelect={() => lib.askDownloadMetadata()}><Sparkles />Download and apply metadata</ContextMenu.Item>
-				<ContextMenu.Item onSelect={() => lib.embedSelected()}><FileDown />Embed metadata into files</ContextMenu.Item>
-				<ContextMenu.Separator />
-				<ContextMenu.Item onSelect={() => lib.sendSelected()}><Send />Send to device</ContextMenu.Item>
+				{#if ebooks}
+					<ContextMenu.Item disabled={!single || audioEntry} onSelect={() => lib.openSelected()}>
+						<BookOpen />Read<ContextMenu.Shortcut>Enter</ContextMenu.Shortcut>
+					</ContextMenu.Item>
+					<ContextMenu.Item disabled={!single || audioEntry} onSelect={() => first && lib.openExternally(first)}>
+						<ExternalLink />Open with system app
+					</ContextMenu.Item>
+				{/if}
+				{#if playable}
+					<ContextMenu.Item onSelect={() => first && lib.playAudio(first)}>
+						<Headphones />Play audiobook{#if audioEntry}<ContextMenu.Shortcut>Enter</ContextMenu.Shortcut>{/if}
+					</ContextMenu.Item>
+				{/if}
+				{#if ebooks}
+					<ContextMenu.Separator />
+					<ContextMenu.Item onSelect={() => lib.editSelected()}>
+						<Pencil />{ebooks === 1 ? "Edit metadata" : `Edit ${ebooks} books`}<ContextMenu.Shortcut>E</ContextMenu.Shortcut>
+					</ContextMenu.Item>
+					<ContextMenu.Item onSelect={() => lib.askDownloadMetadata()}><Sparkles />Download and apply metadata</ContextMenu.Item>
+					<ContextMenu.Item onSelect={() => lib.embedSelected()}><FileDown />Embed metadata into files</ContextMenu.Item>
+					<ContextMenu.Separator />
+					<ContextMenu.Item onSelect={() => lib.sendSelected()}><Send />Send to device</ContextMenu.Item>
+				{/if}
+				{#if !ebooks}<ContextMenu.Separator />{/if}
 				<ContextMenu.Item disabled={!single} onSelect={() => first && lib.showInFolder(first)}><FolderOpen />Show in folder</ContextMenu.Item>
-				<ContextMenu.Separator />
-				<ContextMenu.Item variant="destructive" onSelect={() => lib.askDelete()}>
-					<Trash />Delete<ContextMenu.Shortcut>Del</ContextMenu.Shortcut>
-				</ContextMenu.Item>
+				{#if ebooks}
+					<ContextMenu.Separator />
+					<ContextMenu.Item variant="destructive" onSelect={() => lib.askDelete()}>
+						<Trash />Delete<ContextMenu.Shortcut>Del</ContextMenu.Shortcut>
+					</ContextMenu.Item>
+				{/if}
 			{:else}
 				<ContextMenu.Item onSelect={() => lib.pickAndAdd()}><BookPlus />Add books</ContextMenu.Item>
 				<ContextMenu.Item onSelect={() => lib.selectAll()}>Select all<ContextMenu.Shortcut>Ctrl+A</ContextMenu.Shortcut></ContextMenu.Item>

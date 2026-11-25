@@ -1,18 +1,28 @@
 import type {
 	AddOutcome,
 	Annotation,
+	AudioBrief,
+	AudioIssue,
+	AudioRoot,
+	AudiobookFile,
+	AudiobookInfo,
 	Book,
 	BookPatch,
+	BookSummary,
 	BulkPatch,
 	Category,
 	CategoryItem,
 	Device,
 	DeviceBook,
 	IdentifyQuery,
+	JobEvent,
 	LibraryInfo,
 	ListQuery,
 	ReadingState,
+	RootPatch,
 	SavedSearch,
+	ScanSummary,
+	Scope,
 	SendOutcome,
 	SortField,
 	SourceResult
@@ -21,6 +31,8 @@ import { generatedCover } from "./covers";
 import { EBOOK_EXTENSIONS, baseName, hashString } from "./format";
 
 type MockBook = Book & { hay: string };
+
+const EBOOK_ONLY = { kind: "ebook", audiobookId: null, audio: null, pairedBookId: null } as const;
 
 function mulberry32(seed: number) {
 	let a = seed >>> 0;
@@ -59,6 +71,7 @@ function params() {
 	return {
 		noLibrary: sp.has("nolib"),
 		empty: sp.has("empty"),
+		audio: sp.has("audio"),
 		count: Number(sp.get("n")) || 2000
 	};
 }
@@ -163,12 +176,187 @@ function generate(count: number, seed: number): MockBook[] {
 			uuid: `00000000-0000-4000-8000-${i.toString(16).padStart(12, "0")}`,
 			path: `${author}/${title} (${i})`,
 			files,
-			hay: ""
+			hay: "",
+			...EBOOK_ONLY
 		};
 		book.hay = makeHay(book);
 		books.push(book);
 	}
 	return books;
+}
+
+interface MockAudio extends Omit<AudiobookInfo, "location" | "link" | "candidates"> {
+	auto: number | null;
+	willBeMissing: boolean;
+}
+
+interface AudioMock {
+	roots: AudioRoot[];
+	books: MockAudio[];
+	links: { audiobookId: number; bookId: number; state: "manual" | "rejected" }[];
+	jobs: Map<number, { cancelled: boolean }>;
+	issues: AudioIssue[];
+	nextRoot: number;
+	nextJob: number;
+}
+
+const SUBTITLES = ["A Novel", "Unabridged", "The Complete Story", "A Memoir", "Book One"];
+
+function generateAudio(books: MockBook[], seed: number): MockAudio[] {
+	const r = mulberry32(seed);
+	const narrators = Array.from({ length: 16 }, () => `${pick(r, FIRST)} ${pick(r, LAST)}`);
+	const out: MockAudio[] = [];
+	const add = (title: string, authors: string[], series: string | null, seriesIndex: number | null, auto: MockBook | null) => {
+		const id = out.length + 1;
+		const multi = r() < 0.18;
+		const durationMs = Math.round((2 + r() * 26) * 3.6e6);
+		const narratorList = r() < 0.2 ? [...new Set([pick(r, narrators), pick(r, narrators)])] : [pick(r, narrators)];
+		const fileCount = multi ? 8 + Math.floor(r() * 30) : 1;
+		const files: AudiobookFile[] = [];
+		const audioSize = Math.round((durationMs / 1000) * (multi ? 16000 : 8000));
+		for (let n = 1; n <= fileCount; n++) {
+			files.push({
+				relPath: multi ? `${String(n).padStart(2, "0")} - Part ${n}.mp3` : `${title.replace(/[^\w ]/g, "")}.m4b`,
+				kind: "audio",
+				size: Math.round(audioSize / fileCount),
+				durationMs: Math.round(durationMs / fileCount),
+				track: multi ? n : null,
+				title: multi ? `Part ${n}` : null
+			});
+		}
+		const hasCover = r() < 0.9;
+		if (hasCover) files.push({ relPath: "cover.jpg", kind: "cover", size: 180000, durationMs: null, track: null, title: null });
+		if (r() < 0.3) files.push({ relPath: "metadata.json", kind: "meta", size: 2400, durationMs: null, track: null, title: null });
+		const chapterCount = multi ? 0 : 6 + Math.floor(r() * 40);
+		const chapters = Array.from({ length: chapterCount }, (_, n) => ({
+			title: n === 0 ? "Opening Credits" : n === chapterCount - 1 ? "Epilogue" : `Chapter ${n}`,
+			startMs: Math.round((durationMs / chapterCount) * n)
+		}));
+		const added = NOW - Math.floor(r() * 400 * 864e5);
+		const paras = Array.from({ length: 1 + Math.floor(r() * 2) }, () =>
+			pick(r, SENT).replace("{n1}", pick(r, NOUN).toLowerCase()).replace("{p}", pick(r, PLACE))
+		);
+		out.push({
+			id,
+			rootId: null,
+			state: "present",
+			title,
+			subtitle: r() < 0.25 ? pick(r, SUBTITLES) : null,
+			authors,
+			narrators: narratorList,
+			series,
+			seriesIndex,
+			publisher: r() < 0.8 ? pick(r, ["Audible Studios", "Tantor Audio", "Penguin Audio", "Blackstone Publishing", "Podium Audio"]) : null,
+			language: auto?.languages[0] ?? pick(r, LANGS),
+			genres: auto ? auto.tags.slice(0, 2) : [pick(r, TAGS)],
+			description: paras.map((p) => `<p>${p}</p>`).join(""),
+			asin: r() < 0.85 ? "B0" + Math.floor(r() * 1e8).toString(36).toUpperCase().padStart(8, "0") : null,
+			isbn: r() < 0.3 ? String(9780000000000 + Math.floor(r() * 99999999999)) : null,
+			releaseDate: new Date(Date.UTC(2005 + Math.floor(r() * 20), Math.floor(r() * 12), 1 + Math.floor(r() * 27))).toISOString(),
+			durationMs,
+			size: audioSize + (hasCover ? 180000 : 0),
+			format: multi ? "mp3" : "m4b",
+			fileCount,
+			hasCover,
+			added: new Date(added).toISOString(),
+			modified: new Date(added + Math.floor(r() * 2e8)).toISOString(),
+			dir: `${authors[0]}/${title.replace(/[:?]/g, "")}`,
+			files,
+			chapters,
+			auto: auto?.id ?? null,
+			willBeMissing: false
+		});
+	};
+	const pairedCount = Math.min(40, Math.floor(books.length / 2));
+	for (let i = 0; i < pairedCount; i++) {
+		const b = books[Math.floor(((i + 0.5) * books.length) / pairedCount)];
+		add(b.title, b.authors, b.series, b.series ? b.seriesIndex : null, b);
+	}
+	const near = Math.min(12, Math.floor(books.length / 8));
+	for (let i = 0; i < near; i++) {
+		const b = books[Math.floor(((i + 0.25) * books.length) / near)];
+		add(`${b.title}: Complete Edition`, b.authors, null, null, null);
+	}
+	const authors = Array.from({ length: 24 }, () => `${pick(r, FIRST)} ${pick(r, LAST)}`);
+	const series = Array.from({ length: 6 }, () => ({ name: `The ${pick(r, PLACE)} Saga`, author: pick(r, authors), next: 1 }));
+	for (let i = 0; i < 60 - near; i++) {
+		const s = r() < 0.3 ? pick(r, series) : null;
+		add(
+			pick(r, [
+				() => `The ${pick(r, ADJ)} ${pick(r, NOUN)}`,
+				() => `${pick(r, NOUN)} of ${pick(r, PLACE)}`,
+				() => `${pick(r, ADJ)} ${pick(r, NOUN)}s`,
+				() => `Last ${pick(r, NOUN)} in ${pick(r, PLACE)}`
+			])(),
+			[s ? s.author : pick(r, authors)],
+			s?.name ?? null,
+			s ? s.next++ : null,
+			null
+		);
+	}
+	for (const i of [7, 31]) out[Math.min(i, out.length - 1)].willBeMissing = true;
+	return out;
+}
+
+function newAudio(books: MockBook[], scanned: boolean): AudioMock {
+	const au: AudioMock = { roots: [], books: generateAudio(books, 777), links: [], jobs: new Map(), issues: [], nextRoot: 1, nextJob: 0 };
+	if (scanned) {
+		au.roots.push({
+			id: au.nextRoot++,
+			path: "/home/reader/Audiobooks",
+			inLibrary: false,
+			managed: false,
+			layout: "libation",
+			label: null,
+			enabled: true,
+			lastScan: new Date(NOW).toISOString(),
+			lastScanOk: true,
+			audiobooks: 0
+		});
+		for (const a of au.books) {
+			a.rootId = 1;
+			if (a.willBeMissing) a.state = "missing";
+		}
+		au.issues = sampleIssues("/home/reader/Audiobooks");
+	}
+	return au;
+}
+
+function sampleIssues(root: string): AudioIssue[] {
+	return [
+		{ path: `${root}/Unknown Author/Broken Download/part 3.mp3`, message: "Could not read tags: unexpected end of file" },
+		{ path: `${root}/Scans/Booklet.pdf`, message: "Ignored: not part of an audiobook" }
+	];
+}
+
+function brief(list: MockAudio[]): AudioBrief {
+	const a = list[0];
+	return { narrators: a.narrators, durationMs: a.durationMs, format: a.format, fileCount: a.fileCount, size: a.size, asin: a.asin, state: a.state, count: list.length };
+}
+
+function pairOf(au: AudioMock, a: MockAudio, byId: Map<number, MockBook>): { bookId: number; manual: boolean } | null {
+	const manual = au.links.find((l) => l.audiobookId === a.id && l.state === "manual" && byId.has(l.bookId));
+	if (manual) return { bookId: manual.bookId, manual: true };
+	if (a.auto === null || !byId.has(a.auto)) return null;
+	if (au.links.some((l) => l.audiobookId === a.id && l.bookId === a.auto && l.state === "rejected")) return null;
+	return { bookId: a.auto, manual: false };
+}
+
+function catalog(s: State) {
+	const on = new Set(s.audio.roots.filter((r) => r.enabled).map((r) => r.id));
+	const list = s.audio.books.filter((a) => a.rootId !== null && on.has(a.rootId));
+	const byId = new Map(s.books.map((b) => [b.id, b]));
+	const pairs = new Map<number, { bookId: number; manual: boolean }>();
+	const byBook = new Map<number, MockAudio[]>();
+	for (const a of list) {
+		const p = pairOf(s.audio, a, byId);
+		if (!p) continue;
+		pairs.set(a.id, p);
+		const group = byBook.get(p.bookId);
+		if (group) group.push(a);
+		else byBook.set(p.bookId, [a]);
+	}
+	return { list, byId, pairs, byBook };
 }
 
 interface State {
@@ -181,9 +369,11 @@ interface State {
 	reading: Map<number, ReadingState>;
 	annotations: Annotation[];
 	deviceFiles: Map<string, DeviceBook[]>;
+	audio: AudioMock;
 }
 
 let state: State | null = null;
+const audioByPath = new Map<string, AudioMock>();
 
 function init(): State {
 	const p = params();
@@ -241,7 +431,8 @@ function init(): State {
 			["kobo-libra", dev("kobo")],
 			["kindle-scribe", kindleFiles(books)],
 			["folder-backup", []]
-		])
+		]),
+		audio: newAudio(books, p.audio)
 	};
 }
 
@@ -265,7 +456,15 @@ function tokenize(q: string): string[] {
 	return out;
 }
 
-function fieldValues(b: MockBook, field: string): string[] | null {
+interface Hit extends BookSummary {
+	comments: string | null;
+	hay: string;
+	narrators: string[];
+	hasEbook: boolean;
+	hasAudio: boolean;
+}
+
+function fieldValues(b: Hit, field: string): string[] | null {
 	switch (field) {
 		case "title":
 			return [b.title];
@@ -284,7 +483,10 @@ function fieldValues(b: MockBook, field: string): string[] | null {
 			return b.languages;
 		case "format":
 		case "formats":
-			return b.formats;
+			return b.audio ? [...b.formats, b.audio.format.toUpperCase()] : b.formats;
+		case "narrator":
+		case "narrators":
+			return b.narrators;
 		case "comments":
 			return b.comments ? [b.comments] : [];
 		case "identifiers":
@@ -294,7 +496,7 @@ function fieldValues(b: MockBook, field: string): string[] | null {
 	}
 }
 
-function matchTerm(b: MockBook, term: string): boolean {
+function matchTerm(b: Hit, term: string): boolean {
 	let neg = false;
 	if (term.startsWith("-") && term.length > 1) {
 		neg = true;
@@ -306,7 +508,15 @@ function matchTerm(b: MockBook, term: string): boolean {
 		const field = m[1].toLowerCase();
 		let value = m[2];
 		if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) value = value.slice(1, -1);
-		if (field === "rating") {
+		if (field === "audio" || field === "ebook") {
+			res = (field === "audio" ? b.hasAudio : b.hasEbook) === (value.toLowerCase() === "true");
+		} else if (field === "duration") {
+			const t = /^(>=|<=|>|<|=)?\s*(\d+(?:\.\d+)?)/.exec(value);
+			const hours = (b.audio?.durationMs ?? 0) / 3.6e6;
+			const n = Number(t?.[2]);
+			const op = t?.[1] ?? "=";
+			res = !t ? false : op === "=" ? hours === n : op === ">" ? hours > n : op === ">=" ? hours >= n : op === "<" ? hours < n : hours <= n;
+		} else if (field === "rating") {
 			const t = toStars(value);
 			const stars = (b.rating ?? 0) / 2;
 			res = !t ? false : t.op === "=" ? stars === t.n : t.op === ">" ? stars > t.n : t.op === ">=" ? stars >= t.n : t.op === "<" ? stars < t.n : stars <= t.n;
@@ -321,7 +531,7 @@ function matchTerm(b: MockBook, term: string): boolean {
 	return neg ? !res : res;
 }
 
-function compile(search: string | null | undefined): (b: MockBook) => boolean {
+function compile(search: string | null | undefined): (b: Hit) => boolean {
 	const tokens = tokenize((search ?? "").replace(/[()]/g, " ")).filter((t) => t.toLowerCase() !== "and");
 	if (!tokens.length) return () => true;
 	const groups: string[][] = [[]];
@@ -334,7 +544,7 @@ function compile(search: string | null | undefined): (b: MockBook) => boolean {
 
 const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
 
-function compare(field: SortField): (a: MockBook, b: MockBook) => number {
+function compare(field: SortField): (a: Hit, b: Hit) => number {
 	switch (field) {
 		case "title":
 			return (a, b) => collator.compare(a.sort, b.sort);
@@ -355,6 +565,8 @@ function compare(field: SortField): (a: MockBook, b: MockBook) => number {
 			return (a, b) => a.size - b.size;
 		case "publisher":
 			return (a, b) => collator.compare(a.publisher ?? "￿", b.publisher ?? "￿");
+		case "duration":
+			return (a, b) => (a.audio?.durationMs ?? 0) - (b.audio?.durationMs ?? 0);
 	}
 }
 
@@ -363,10 +575,80 @@ function summary(b: MockBook) {
 	return s;
 }
 
-function categories(s: State, search: string | null): Category[] {
+function ebookHit(b: MockBook, group?: MockAudio[]): Hit {
+	return {
+		...summary(b),
+		kind: group ? "both" : "ebook",
+		audiobookId: group ? group[0].id : null,
+		audio: group ? brief(group) : null,
+		comments: b.comments,
+		hay: group ? `${b.hay}\n${group[0].narrators.join(" ").toLowerCase()}` : b.hay,
+		narrators: group ? group[0].narrators : [],
+		hasEbook: true,
+		hasAudio: !!group
+	};
+}
+
+function audioHit(a: MockAudio, bookId: number | null): Hit {
+	const identifiers: Record<string, string> = {};
+	if (a.asin) identifiers.asin = a.asin;
+	if (a.isbn) identifiers.isbn = a.isbn;
+	return {
+		id: -a.id,
+		title: a.title,
+		sort: sortKey(a.title),
+		authors: a.authors,
+		authorSort: a.authors.map((n) => n.split(" ").reverse().join(", ")).join(" & "),
+		series: a.series,
+		seriesIndex: a.seriesIndex ?? 1,
+		tags: a.genres,
+		publisher: a.publisher,
+		languages: a.language ? [a.language] : [],
+		rating: null,
+		formats: [],
+		identifiers,
+		hasCover: a.hasCover,
+		size: a.size,
+		timestamp: a.added,
+		pubdate: a.releaseDate,
+		lastModified: a.modified,
+		kind: bookId === null ? "audiobook" : "both",
+		audiobookId: a.id,
+		audio: brief([a]),
+		pairedBookId: bookId,
+		comments: a.description,
+		hay: [a.title, a.subtitle ?? "", a.authors.join(" "), a.narrators.join(" "), a.series ?? "", a.genres.join(" "), a.publisher ?? "", a.description ?? "", Object.values(identifiers).join(" ")]
+			.join("\n")
+			.toLowerCase(),
+		narrators: a.narrators,
+		hasEbook: bookId !== null,
+		hasAudio: true
+	};
+}
+
+function entries(s: State, scope: Scope): Hit[] {
+	const { list, pairs, byBook } = catalog(s);
+	const out: Hit[] = [];
+	if (scope !== "audiobooks") for (const b of s.books) out.push(ebookHit(b, byBook.get(b.id)));
+	if (scope !== "ebooks") {
+		for (const a of list) {
+			const p = pairs.get(a.id);
+			if (scope === "audiobooks" || !p) out.push(audioHit(a, p?.bookId ?? null));
+		}
+	}
+	return out;
+}
+
+function plain(h: Hit): BookSummary {
+	const { comments: _c, hay: _h, narrators: _n, hasEbook: _e, hasAudio: _a, ...rest } = h;
+	return rest;
+}
+
+function categories(s: State, search: string | null, scope: Scope): Category[] {
 	const match = compile(search);
-	const subset = s.books.filter(match);
-	const build = (key: string, values: (b: MockBook) => string[], searchFor: (v: string) => string, label = (v: string) => v) => {
+	const subset = entries(s, scope).filter(match);
+	const audible = catalog(s).list.length > 0;
+	const build = (key: string, values: (b: Hit) => string[], searchFor: (v: string) => string, label = (v: string) => v) => {
 		const counts = new Map<string, number>();
 		for (const b of subset) for (const v of values(b)) counts.set(v, (counts.get(v) ?? 0) + 1);
 		const items: CategoryItem[] = [...counts]
@@ -377,15 +659,33 @@ function categories(s: State, search: string | null): Category[] {
 	const stars = build("rating", (b) => (b.rating ? [String(b.rating / 2)] : []), (v) => `rating:"=${v}"`, (v) => `${v} ${v === "1" ? "star" : "stars"}`);
 	stars.items.reverse();
 	return [
+		...(audible ? [audioCategory(subset)] : []),
 		build("authors", (b) => b.authors, (v) => `authors:"=${v}"`),
+		...(audible ? [build("narrators", (b) => b.narrators, (v) => `narrators:"=${v}"`)] : []),
 		build("series", (b) => (b.series ? [b.series] : []), (v) => `series:"=${v}"`),
 		build("tags", (b) => b.tags, (v) => `tags:"=${v}"`),
 		build("publisher", (b) => (b.publisher ? [b.publisher] : []), (v) => `publisher:"=${v}"`),
 		build("languages", (b) => b.languages, (v) => `languages:"=${v}"`),
-		build("formats", (b) => b.formats, (v) => `formats:"=${v}"`),
+		build("formats", (b) => (b.audio ? [...b.formats, b.audio.format.toUpperCase()] : b.formats), (v) => `formats:"=${v}"`),
 		stars,
 		build("identifiers", (b) => Object.keys(b.identifiers), (v) => `identifiers:${v}:true`)
 	];
+}
+
+function audioCategory(subset: Hit[]): Category {
+	const total = subset.length;
+	const audio = subset.filter((h) => h.hasAudio).length;
+	const ebook = subset.filter((h) => h.hasEbook).length;
+	const items: CategoryItem[] = [
+		{ name: "Has audiobook", count: audio, search: "audio:true" },
+		{ name: "Has ebook", count: ebook, search: "ebook:true" },
+		{ name: "Both formats", count: audio + ebook - total, search: "audio:true and ebook:true" },
+		{ name: "No audiobook", count: total - audio, search: "audio:false" },
+		{ name: "No ebook", count: total - ebook, search: "ebook:false" }
+	]
+		.filter((i) => i.count > 0 && i.count < total)
+		.map((i) => ({ id: null, ...i }));
+	return { key: "audio", items };
 }
 
 function apply(b: MockBook, patch: BookPatch) {
@@ -448,6 +748,107 @@ function fakeResults(q: IdentifyQuery): SourceResult[] {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+function audioStatus(s: State) {
+	const roots = s.audio.roots.map((r) => ({ ...r, audiobooks: s.audio.books.filter((a) => a.rootId === r.id).length }));
+	return {
+		roots,
+		audiobooks: roots.filter((r) => r.enabled).reduce((n, r) => n + r.audiobooks, 0),
+		issues: s.audio.issues
+	};
+}
+
+function startScan(s: State, rootIds: number[] | null, onEvent: (e: JobEvent) => void) {
+	const au = s.audio;
+	const ids = rootIds ?? au.roots.filter((r) => r.enabled).map((r) => r.id);
+	const id = ++au.nextJob;
+	const job = { cancelled: false };
+	au.jobs.set(id, job);
+	void simulateScan(au, ids, job, onEvent).finally(() => au.jobs.delete(id));
+	return id;
+}
+
+async function simulateScan(au: AudioMock, ids: number[], job: { cancelled: boolean }, onEvent: (e: JobEvent) => void) {
+	const total: ScanSummary = { audiobooks: 0, added: 0, updated: 0, unchanged: 0, missing: 0, issues: 0, complete: true };
+	const progress = (phase: "walking" | "reading", done: number, count: number, current: string) =>
+		onEvent({ event: "progress", phase, done, total: count, current });
+	for (const id of ids) {
+		const root = au.roots.find((r) => r.id === id);
+		if (!root) continue;
+		if (/fail/i.test(root.path)) return onEvent({ event: "failed", message: `Could not read ${root.path}: permission denied` });
+		const offline = /offline/i.test(root.path);
+		const claim = offline ? [] : au.books.filter((a) => a.rootId === null || a.rootId === id);
+		const files = claim.reduce((n, a) => n + a.fileCount, 0);
+		for (let i = 1; i <= 8; i++) {
+			if (job.cancelled) return onEvent({ event: "cancelled" });
+			progress("walking", Math.round((files * i) / 8), 0, `${root.path}/${claim[Math.floor(((i - 1) * claim.length) / 8)]?.dir ?? ""}`);
+			await sleep(75);
+		}
+		let added = 0;
+		for (const [i, a] of claim.entries()) {
+			if (job.cancelled) return onEvent({ event: "cancelled" });
+			if (a.rootId === null) added++;
+			a.rootId = id;
+			a.state = a.willBeMissing ? "missing" : "present";
+			progress("reading", i + 1, claim.length, `${root.path}/${a.dir}`);
+			await sleep(Math.max(4, 1200 / claim.length));
+		}
+		const missing = claim.filter((a) => a.state === "missing").length;
+		root.lastScan = new Date().toISOString();
+		root.lastScanOk = !offline;
+		total.audiobooks += claim.length;
+		total.added += added;
+		total.unchanged += claim.length - added - missing;
+		total.missing += missing;
+		total.complete &&= !offline;
+	}
+	if (total.audiobooks) {
+		au.issues = sampleIssues(au.roots.find((r) => r.id === ids[0])?.path ?? "");
+		total.issues = au.issues.length;
+	}
+	onEvent({ event: "done", result: total });
+}
+
+const tokens = (t: string) => new Set(t.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean));
+
+function candidatesFor(s: State, a: MockAudio) {
+	const ta = tokens(a.title);
+	const out: { book: BookSummary; score: number }[] = [];
+	for (const b of s.books) {
+		if (s.audio.links.some((l) => l.audiobookId === a.id && l.bookId === b.id && l.state === "rejected")) continue;
+		const tb = tokens(b.title);
+		let hit = 0;
+		for (const t of ta) if (tb.has(t)) hit++;
+		let score = hit / (ta.size + tb.size - hit);
+		if (a.authors.some((x) => b.authors.includes(x))) score = Math.min(1, score + 0.15);
+		if (score >= 0.5) out.push({ book: summary(b), score });
+	}
+	return out.sort((x, y) => y.score - x.score).slice(0, 5);
+}
+
+function audiobookInfo(s: State, id: number): AudiobookInfo {
+	const a = s.audio.books.find((x) => x.id === id);
+	if (!a) throw `audiobook ${id} not found`;
+	const { auto: _a, willBeMissing: _w, ...row } = a;
+	const root = s.audio.roots.find((r) => r.id === a.rootId);
+	const base = root ? (root.inLibrary ? `${s.library?.path}/${root.path}` : root.path) : null;
+	const byId = new Map(s.books.map((b) => [b.id, b]));
+	const pair = pairOf(s.audio, a, byId);
+	const book = pair && byId.get(pair.bookId);
+	return {
+		...row,
+		location: base && a.dir ? `${base}/${a.dir}` : base,
+		link: book && pair ? { book: summary(book), manual: pair.manual } : null,
+		candidates: book ? [] : candidatesFor(s, a)
+	};
+}
+
+function audioFile(s: State, id: number) {
+	const a = s.audio.books.find((x) => x.id === id);
+	if (!a) throw `audiobook ${id} not found`;
+	if (a.rootId === null) throw "This audiobook has not been downloaded";
+	if (a.state === "missing") throw `File is not reachable: ${a.dir}/${a.files[0].relPath}`;
+}
+
 export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}): Promise<unknown> {
 	const s = (state ??= init());
 	const a = args as Record<string, any>;
@@ -469,6 +870,8 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 				s.progress = {};
 			}
 			const info: LibraryInfo = { path, name: baseName(path), bookCount: s.books.length };
+			if (s.library) audioByPath.set(s.library.path, s.audio);
+			s.audio = (!create && audioByPath.get(path)) || newAudio(s.books, false);
 			s.library = info;
 			s.recents = [info, ...s.recents.filter((l) => l.path !== path)];
 			s.nextId = s.books.length + 1;
@@ -478,16 +881,16 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 			await sleep(25);
 			const q = a.query as ListQuery;
 			const match = compile(q.search);
-			const out = s.books.filter(match);
+			const out = entries(s, q.scope ?? "ebooks").filter(match);
 			const cmp = compare(q.sortBy ?? "added");
 			out.sort(q.descending ? (x, y) => cmp(y, x) : cmp);
-			return out.map(summary);
+			return out.map(plain);
 		}
 		case "get_book":
 			return full(find(s, a.id));
 		case "get_categories":
 			await sleep(20);
-			return categories(s, a.search);
+			return categories(s, a.search, a.scope ?? "ebooks");
 		case "completions": {
 			const set = new Set<string>();
 			for (const b of s.books) {
@@ -564,7 +967,7 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 					id, title, sort: sortKey(title), authors: ["Unknown"], authorSort: "Unknown", series: null, seriesIndex: 1, tags: [],
 					publisher: null, languages: [], rating: null, formats: [ext.toUpperCase()], identifiers: {}, hasCover: false, size: 800000,
 					timestamp: stamp, pubdate: null, lastModified: stamp, comments: null, uuid: crypto.randomUUID(), path: `Unknown/${title} (${id})`,
-					files: [{ format: ext.toUpperCase(), fileName: title, size: 800000 }], hay: ""
+					files: [{ format: ext.toUpperCase(), fileName: title, size: 800000 }], hay: "", ...EBOOK_ONLY
 				};
 				b.hay = makeHay(b);
 				s.books.push(b);
@@ -682,7 +1085,7 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 					id, title: db.title, sort: sortKey(db.title), authors, authorSort: authors[0], series: null, seriesIndex: 1, tags: [],
 					publisher: null, languages: [], rating: null, formats: [db.format], identifiers: {}, hasCover: false, size: db.size,
 					timestamp: stamp, pubdate: null, lastModified: stamp, comments: null, uuid: crypto.randomUUID(), path: `${authors[0]}/${db.title} (${id})`,
-					files: [{ format: db.format, fileName: db.title, size: db.size }], hay: ""
+					files: [{ format: db.format, fileName: db.title, size: db.size }], hay: "", ...EBOOK_ONLY
 				};
 				b.hay = makeHay(b);
 				s.books.push(b);
@@ -714,6 +1117,70 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 		}
 		case "delete_annotation":
 			s.annotations = s.annotations.filter((x) => x.id !== a.id);
+			return null;
+		case "audio_status":
+			return audioStatus(s);
+		case "audio_add_root": {
+			await sleep(100);
+			const inLibrary = a.inLibrary as boolean;
+			const path = inLibrary ? "Audiobooks" : (a.path as string | null);
+			if (!path) throw "No folder was chosen";
+			if (s.audio.roots.some((r) => r.path === path)) throw `Already added: ${path}`;
+			const root: AudioRoot = {
+				id: s.audio.nextRoot++,
+				path,
+				inLibrary,
+				managed: inLibrary,
+				layout: inLibrary ? "author-title" : "libation",
+				label: null,
+				enabled: true,
+				lastScan: null,
+				lastScanOk: null,
+				audiobooks: 0
+			};
+			s.audio.roots.push(root);
+			return root;
+		}
+		case "audio_update_root": {
+			const root = s.audio.roots.find((r) => r.id === a.id);
+			if (!root) throw `location ${a.id} not found`;
+			const p = a.patch as RootPatch;
+			if (p.path !== undefined) root.path = p.path;
+			if (p.managed !== undefined) root.managed = p.managed;
+			if (p.layout !== undefined) root.layout = p.layout;
+			if (p.label !== undefined) root.label = p.label.trim() || null;
+			if (p.enabled !== undefined) root.enabled = p.enabled;
+			return { ...root, audiobooks: s.audio.books.filter((x) => x.rootId === root.id).length };
+		}
+		case "audio_remove_root":
+			for (const x of s.audio.books) if (x.rootId === a.id) x.rootId = null;
+			s.audio.roots = s.audio.roots.filter((r) => r.id !== a.id);
+			return null;
+		case "audio_scan":
+			return startScan(s, a.rootIds, a.onEvent);
+		case "job_cancel": {
+			const job = s.audio.jobs.get(a.id);
+			if (job) job.cancelled = true;
+			return null;
+		}
+		case "audiobook":
+			return audiobookInfo(s, a.id);
+		case "audio_link":
+			find(s, a.bookId);
+			s.audio.links = s.audio.links.filter((l) => l.audiobookId !== a.audiobookId);
+			s.audio.links.push({ audiobookId: a.audiobookId, bookId: a.bookId, state: "manual" });
+			return null;
+		case "audio_unlink":
+			s.audio.links = s.audio.links.filter((l) => !(l.audiobookId === a.audiobookId && l.bookId === a.bookId));
+			s.audio.links.push({ audiobookId: a.audiobookId, bookId: a.bookId, state: "rejected" });
+			return null;
+		case "audio_reset_link":
+			s.audio.links = s.audio.links.filter((l) => l.audiobookId !== a.audiobookId);
+			return null;
+		case "audio_show_in_folder":
+		case "audio_open":
+			audioFile(s, a.id);
+			console.info("[mock]", cmd, args);
 			return null;
 		default:
 			throw `no mock for ${cmd}`;

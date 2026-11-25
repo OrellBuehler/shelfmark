@@ -6,6 +6,7 @@
 	import PanelLeft from "@lucide/svelte/icons/panel-left";
 	import PanelRight from "@lucide/svelte/icons/panel-right";
 	import Plus from "@lucide/svelte/icons/plus";
+	import Settings from "@lucide/svelte/icons/settings";
 	import Sun from "@lucide/svelte/icons/sun";
 	import Table2 from "@lucide/svelte/icons/table-2";
 	import Tablet from "@lucide/svelte/icons/tablet-smartphone";
@@ -15,6 +16,7 @@
 	import { lib } from "#lib/stores/library.svelte";
 	import IconButton from "./IconButton.svelte";
 	import LibrarySwitcher from "./LibrarySwitcher.svelte";
+	import ScopeSwitch from "./ScopeSwitch.svelte";
 	import SearchBar from "./SearchBar.svelte";
 	import SortMenu from "./SortMenu.svelte";
 </script>
@@ -32,6 +34,7 @@
 		<SearchBar />
 	</div>
 	<div class="ml-auto flex shrink-0 items-center gap-1">
+		<ScopeSwitch />
 		<SortMenu />
 		<div class="flex items-center rounded-md bg-muted/70 p-0.5" role="group" aria-label="View">
 			<IconButton
@@ -64,6 +67,7 @@
 			<span class="sr-only xl:hidden">Add books</span>
 		</Button>
 		<IconButton label="Devices" icon={Tablet} onclick={() => (lib.devicesOpen = true)} />
+		<IconButton label="Settings" icon={Settings} onclick={() => (lib.settingsOpen = true)} />
 		<DropdownMenu.Root>
 			<DropdownMenu.Trigger>
 				{#snippet child({ props })}

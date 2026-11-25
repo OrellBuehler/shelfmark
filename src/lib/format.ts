@@ -68,6 +68,29 @@ export function plural(n: number, one: string, many = one + "s"): string {
 	return `${n.toLocaleString()} ${n === 1 ? one : many}`;
 }
 
+export function formatDuration(ms: number): string {
+	const total = Math.round(ms / 60000);
+	if (total < 1) return ms > 0 ? "< 1 min" : "";
+	const h = Math.floor(total / 60);
+	const m = total % 60;
+	if (!h) return `${m} min`;
+	return m ? `${h} h ${m} min` : `${h} h`;
+}
+
+export function formatClock(ms: number): string {
+	const total = Math.floor(ms / 1000);
+	const h = Math.floor(total / 3600);
+	const m = Math.floor((total % 3600) / 60);
+	const sec = String(total % 60).padStart(2, "0");
+	return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
+export function errorMessage(e: unknown): string {
+	if (typeof e === "string") return e;
+	if (e instanceof Error) return e.message;
+	return String(e);
+}
+
 export function baseName(path: string): string {
 	return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }

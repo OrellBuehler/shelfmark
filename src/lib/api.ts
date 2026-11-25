@@ -1,4 +1,4 @@
-import { convertFileSrc, invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { Channel, convertFileSrc, invoke as tauriInvoke } from "@tauri-apps/api/core";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -9,6 +9,23 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 }
 
 export type BookId = number;
+export type AudiobookId = number;
+
+export type Scope = "all" | "ebooks" | "audiobooks";
+export type EntryKind = "ebook" | "audiobook" | "both";
+export type AudioState = "present" | "missing" | "remote";
+export type AudioLayout = "libation" | "author-title";
+
+export interface AudioBrief {
+	narrators: string[];
+	durationMs: number;
+	format: string;
+	fileCount: number;
+	size: number;
+	asin: string | null;
+	state: AudioState;
+	count: number;
+}
 
 export interface Metadata {
 	title: string | null;
@@ -46,6 +63,10 @@ export interface BookSummary {
 	timestamp: string;
 	pubdate: string | null;
 	lastModified: string;
+	kind: EntryKind;
+	audiobookId: AudiobookId | null;
+	audio: AudioBrief | null;
+	pairedBookId: BookId | null;
 }
 
 export interface FormatFile {
@@ -70,12 +91,14 @@ export type SortField =
 	| "modified"
 	| "rating"
 	| "size"
-	| "publisher";
+	| "publisher"
+	| "duration";
 
 export interface ListQuery {
 	search?: string | null;
 	sortBy?: SortField;
 	descending?: boolean;
+	scope?: Scope;
 }
 
 export interface BookPatch {
@@ -209,6 +232,135 @@ export interface Annotation {
 	updated: string;
 }
 
+export interface AudioRoot {
+	id: number;
+	path: string;
+	inLibrary: boolean;
+	managed: boolean;
+	layout: AudioLayout;
+	label: string | null;
+	enabled: boolean;
+	lastScan: string | null;
+	lastScanOk: boolean | null;
+	audiobooks: number;
+}
+
+export interface AudioIssue {
+	path: string;
+	message: string;
+}
+
+export interface AudioStatus {
+	roots: AudioRoot[];
+	audiobooks: number;
+	issues: AudioIssue[];
+}
+
+export interface RootPatch {
+	path?: string;
+	managed?: boolean;
+	layout?: AudioLayout;
+	label?: string;
+	enabled?: boolean;
+}
+
+export interface ScanSummary {
+	audiobooks: number;
+	added: number;
+	updated: number;
+	unchanged: number;
+	missing: number;
+	issues: number;
+	complete: boolean;
+}
+
+export type JobEvent =
+	| { event: "progress"; phase: "walking" | "reading" | "done"; done: number; total: number; current: string | null }
+	| { event: "done"; result: ScanSummary }
+	| { event: "failed"; message: string }
+	| { event: "cancelled" };
+
+export type JobProgress = Extract<JobEvent, { event: "progress" }>;
+export type JobEnd = Exclude<JobEvent, { event: "progress" }>;
+
+export interface AudiobookFile {
+	relPath: string;
+	kind: "audio" | "cover" | "pdf" | "cue" | "meta";
+	size: number;
+	durationMs: number | null;
+	track: number | null;
+	title: string | null;
+}
+
+export interface AudiobookChapter {
+	title: string;
+	startMs: number;
+}
+
+export interface AudiobookInfo {
+	id: AudiobookId;
+	rootId: number | null;
+	state: AudioState;
+	title: string;
+	subtitle: string | null;
+	authors: string[];
+	narrators: string[];
+	series: string | null;
+	seriesIndex: number | null;
+	publisher: string | null;
+	language: string | null;
+	genres: string[];
+	description: string | null;
+	asin: string | null;
+	isbn: string | null;
+	releaseDate: string | null;
+	durationMs: number;
+	size: number;
+	format: string;
+	fileCount: number;
+	hasCover: boolean;
+	added: string;
+	modified: string;
+	dir: string | null;
+	files: AudiobookFile[];
+	chapters: AudiobookChapter[];
+	location: string | null;
+	link: { book: BookSummary; manual: boolean } | null;
+	candidates: { book: BookSummary; score: number }[];
+}
+
+export function isAudioEntry(b: Pick<BookSummary, "kind" | "pairedBookId">) {
+	return b.kind === "audiobook" || b.pairedBookId !== null;
+}
+
+export function runJob(cmd: string, args: Record<string, unknown>, onProgress: (p: JobProgress) => void) {
+	let id: number | null = null;
+	let cancelled = false;
+	const result = new Promise<JobEnd>((resolve, reject) => {
+		const onEvent = (e: JobEvent) => {
+			if (e.event === "progress") onProgress(e);
+			else resolve(e);
+		};
+		let channel: Channel<JobEvent> | ((e: JobEvent) => void) = onEvent;
+		if (inTauri) {
+			channel = new Channel<JobEvent>();
+			channel.onmessage = onEvent;
+		}
+		invoke<number>(cmd, { ...args, onEvent: channel }).then((started) => {
+			id = started;
+			if (cancelled) void invoke("job_cancel", { id });
+		}, reject);
+	});
+	return {
+		result,
+		cancel() {
+			if (cancelled) return;
+			cancelled = true;
+			if (id !== null) void invoke("job_cancel", { id });
+		}
+	};
+}
+
 export const api = {
 	currentLibrary: () => invoke<LibraryInfo | null>("current_library"),
 	recentLibraries: () => invoke<LibraryInfo[]>("recent_libraries"),
@@ -217,8 +369,8 @@ export const api = {
 
 	listBooks: (query: ListQuery = {}) => invoke<BookSummary[]>("list_books", { query }),
 	getBook: (id: BookId) => invoke<Book>("get_book", { id }),
-	categories: (search?: string | null) =>
-		invoke<Category[]>("get_categories", { search: search ?? null }),
+	categories: (search?: string | null, scope?: Scope) =>
+		invoke<Category[]>("get_categories", { search: search ?? null, scope: scope ?? null }),
 	completions: (field: "authors" | "series" | "tags" | "publisher" | "languages") =>
 		invoke<string[]>("completions", { field }),
 	savedSearches: () => invoke<SavedSearch[]>("saved_searches"),
@@ -256,11 +408,36 @@ export const api = {
 	setReadingState: (state: ReadingState) => invoke<void>("set_reading_state", { state }),
 	annotations: (id: BookId) => invoke<Annotation[]>("annotations", { id }),
 	saveAnnotation: (annotation: Annotation) => invoke<void>("save_annotation", { annotation }),
-	deleteAnnotation: (id: string) => invoke<void>("delete_annotation", { id })
+	deleteAnnotation: (id: string) => invoke<void>("delete_annotation", { id }),
+
+	audioStatus: () => invoke<AudioStatus>("audio_status"),
+	audioAddRoot: (inLibrary: boolean, path?: string) =>
+		invoke<AudioRoot>("audio_add_root", { path: path ?? null, inLibrary }),
+	audioUpdateRoot: (id: number, patch: RootPatch) => invoke<AudioRoot>("audio_update_root", { id, patch }),
+	audioRemoveRoot: (id: number) => invoke<void>("audio_remove_root", { id }),
+	audioScan: (rootIds: number[] | null, onProgress: (p: JobProgress) => void) =>
+		runJob("audio_scan", { rootIds }, onProgress),
+	audiobook: (id: AudiobookId) => invoke<AudiobookInfo>("audiobook", { id }),
+	audioLink: (audiobookId: AudiobookId, bookId: BookId) => invoke<void>("audio_link", { audiobookId, bookId }),
+	audioUnlink: (audiobookId: AudiobookId, bookId: BookId) => invoke<void>("audio_unlink", { audiobookId, bookId }),
+	audioResetLink: (audiobookId: AudiobookId) => invoke<void>("audio_reset_link", { audiobookId }),
+	audioShowInFolder: (id: AudiobookId) => invoke<void>("audio_show_in_folder", { id }),
+	audioOpen: (id: AudiobookId) => invoke<void>("audio_open", { id })
 };
 
-export function coverUrl(book: Pick<BookSummary, "id" | "lastModified">, width = 400) {
-	return `${convertFileSrc(String(book.id), "cover")}?w=${width}&v=${encodeURIComponent(book.lastModified)}`;
+type CoverRef = Pick<BookSummary, "id" | "lastModified" | "hasCover" | "kind" | "audiobookId" | "pairedBookId">;
+
+function audioCover(book: CoverRef) {
+	return book.audiobookId !== null && (isAudioEntry(book) || !book.hasCover);
+}
+
+export function entryHasCover(book: CoverRef) {
+	return book.hasCover || audioCover(book);
+}
+
+export function coverUrl(book: CoverRef, width = 400) {
+	const path = audioCover(book) ? `a/${book.audiobookId}` : String(book.id);
+	return `${convertFileSrc(path, "cover")}?w=${width}&v=${encodeURIComponent(book.lastModified)}`;
 }
 
 export function bookFileUrl(id: BookId, format: string) {

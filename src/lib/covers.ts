@@ -61,7 +61,7 @@ export function generatedCover(title: string, author: string, seed: number): str
 }
 
 export function coverSrc(
-	book: Pick<BookSummary, "id" | "lastModified" | "title" | "authors">,
+	book: Pick<BookSummary, "id" | "lastModified" | "title" | "authors" | "hasCover" | "kind" | "audiobookId" | "pairedBookId">,
 	width = 400
 ): string {
 	if (inTauri) return coverUrl(book, width);

@@ -10,10 +10,13 @@ import {
 	type CategoryItem,
 	type LibraryInfo,
 	type SavedSearch,
-	type SortField
+	type Scope,
+	type SortField,
+	isAudioEntry
 } from "#lib/api";
 import { sanitizeHtml } from "#lib/components/edit/sanitize";
-import { EBOOK_EXTENSIONS, baseName, pickReadFormat, plural } from "#lib/format";
+import { EBOOK_EXTENSIONS, baseName, errorMessage, pickReadFormat, plural } from "#lib/format";
+import { audio } from "#lib/stores/audio.svelte";
 
 function preview(titles: string[]) {
 	return titles.slice(0, 3).join(", ") + (titles.length > 3 ? ` and ${titles.length - 3} more` : "");
@@ -28,12 +31,6 @@ export type ViewMode = "grid" | "table";
 
 const PREFS_KEY = "shelfmark:prefs";
 
-export function errorMessage(e: unknown): string {
-	if (typeof e === "string") return e;
-	if (e instanceof Error) return e.message;
-	return String(e);
-}
-
 const FIELD_LABELS: Record<string, string> = {
 	authors: "Author",
 	author: "Author",
@@ -45,15 +42,32 @@ const FIELD_LABELS: Record<string, string> = {
 	languages: "Language",
 	formats: "Format",
 	rating: "Rating",
-	identifiers: "Identifier"
+	identifiers: "Identifier",
+	narrators: "Narrator",
+	narrator: "Narrator",
+	duration: "Length"
+};
+
+const FLAG_LABELS: Record<string, string> = {
+	"audio:true": "Has audiobook",
+	"audio:false": "No audiobook",
+	"ebook:true": "Has ebook",
+	"ebook:false": "No ebook"
 };
 
 function labelFor(search: string): string {
+	const parts = splitAnd(search);
+	if (parts && parts.length > 1) {
+		if (parts.length === 2 && parts.includes("audio:true") && parts.includes("ebook:true")) return "Both formats";
+		return parts.map(labelFor).join(" + ");
+	}
+	if (FLAG_LABELS[search]) return FLAG_LABELS[search];
 	const m = /^(\w+):(.*)$/.exec(search);
 	if (!m) return search;
 	let value = m[2].replace(/^"(.*)"$/, "$1").replace(/^=/, "");
 	if (m[1] === "identifiers") value = value.replace(/:true$/, "");
 	if (m[1] === "rating") value = `${value} ${value === "1" ? "star" : "stars"}`;
+	if (m[1] === "duration") value = `${value.replace(/^([<>]=?|=)/, "$1 ")} h`;
 	return `${FIELD_LABELS[m[1]] ?? m[1]}: ${value}`;
 }
 
@@ -78,7 +92,12 @@ export function parseQuery(q: string): { filters: Filter[]; text: string } {
 	const filters: Filter[] = [];
 	const rest: string[] = [];
 	for (const p of parts) {
-		if (/^(authors|series|tags|publisher|languages|formats|rating):"=[^"]*"$/.test(p) || /^identifiers:\S+:true$/.test(p))
+		if (
+			/^(authors|series|tags|publisher|languages|formats|rating|narrators):"=[^"]*"$/.test(p) ||
+			/^identifiers:\S+:true$/.test(p) ||
+			/^(audio|ebook):(true|false)$/.test(p) ||
+			/^duration:[<>=]\S+$/.test(p)
+		)
 			filters.push({ search: p, label: labelFor(p) });
 		else rest.push(p);
 	}
@@ -110,6 +129,8 @@ class LibraryState {
 	appliedText = $state("");
 	sortBy = $state<SortField>("added");
 	descending = $state(true);
+	scopePref = $state<Scope>("all");
+	scope = $derived<Scope>(audio.hasLocation ? this.scopePref : "ebooks");
 
 	view = $state<ViewMode>("grid");
 	coverSize = $state(160);
@@ -117,7 +138,7 @@ class LibraryState {
 	detailsOpen = $state(true);
 	sidebarSize = $state(defaultPane(paneSizes.sidebar));
 	detailsSize = $state(defaultPane(paneSizes.details));
-	collapsed = $state.raw<Record<string, boolean>>({ tags: false });
+	collapsed = $state.raw<Record<string, boolean>>({ tags: false, audio: false });
 	columnWidths = $state.raw<Record<string, number>>({});
 
 	selected = $state.raw<Set<number>>(new Set());
@@ -135,6 +156,7 @@ class LibraryState {
 	bulkOpen = $state(false);
 	bulkIds = $state.raw<number[]>([]);
 	devicesOpen = $state(false);
+	settingsOpen = $state(false);
 	deleteOpen = $state(false);
 	metaOpen = $state(false);
 	metaRunning = false;
@@ -161,8 +183,19 @@ class LibraryState {
 		return out;
 	});
 
-	selectedIds = $derived(this.selectedBooks.map((b) => b.id));
+	selectedEbooks = $derived(this.selectedBooks.filter((b) => !isAudioEntry(b)));
+	selectedIds = $derived(this.selectedEbooks.map((b) => b.id));
 	selectedSize = $derived(this.selectedBooks.reduce((a, b) => a + b.size, 0));
+
+	counts = $derived.by(() => {
+		let books = 0;
+		let audiobooks = 0;
+		for (const b of this.books) {
+			if (!isAudioEntry(b)) books++;
+			if (b.audio) audiobooks++;
+		}
+		return { books, audiobooks };
+	});
 
 	private booksToken = 0;
 	private catsToken = 0;
@@ -184,7 +217,8 @@ class LibraryState {
 			if (typeof p.detailsSize === "number") this.detailsSize = p.detailsSize;
 			if (typeof p.sortBy === "string") this.sortBy = p.sortBy;
 			if (typeof p.descending === "boolean") this.descending = p.descending;
-			if (p.collapsed && typeof p.collapsed === "object") this.collapsed = p.collapsed;
+			if (p.scope === "all" || p.scope === "ebooks" || p.scope === "audiobooks") this.scopePref = p.scope;
+			if (p.collapsed && typeof p.collapsed === "object") this.collapsed = { audio: false, ...p.collapsed };
 			if (p.columnWidths && typeof p.columnWidths === "object") this.columnWidths = p.columnWidths;
 		} catch {
 			/* ignore */
@@ -201,6 +235,7 @@ class LibraryState {
 			detailsSize: this.detailsSize,
 			sortBy: this.sortBy,
 			descending: this.descending,
+			scope: this.scopePref,
 			collapsed: this.collapsed,
 			columnWidths: this.columnWidths
 		};
@@ -251,6 +286,7 @@ class LibraryState {
 	}
 
 	private resetView() {
+		audio.reset();
 		this.books = [];
 		this.categories = [];
 		this.progress = {};
@@ -287,14 +323,27 @@ class LibraryState {
 			(s) => (this.savedSearches = s),
 			(e) => this.fail("Could not load saved searches", e)
 		);
+		await audio.load();
+		this.normalizeSort();
 		await Promise.all([this.loadBooks(), this.loadCategories(), this.loadProgress()]);
+	}
+
+	private normalizeSort() {
+		if (this.sortBy !== "duration" || (audio.hasAudio && this.scope !== "ebooks")) return;
+		this.sortBy = "added";
+		this.descending = true;
 	}
 
 	async loadBooks() {
 		const token = ++this.booksToken;
 		this.loading = true;
 		try {
-			const books = await api.listBooks({ search: this.query || null, sortBy: this.sortBy, descending: this.descending });
+			const books = await api.listBooks({
+				search: this.query || null,
+				sortBy: this.sortBy,
+				descending: this.descending,
+				scope: this.scope
+			});
 			if (token !== this.booksToken) return;
 			this.books = books;
 			this.loaded = true;
@@ -313,7 +362,7 @@ class LibraryState {
 	async loadCategories() {
 		const token = ++this.catsToken;
 		try {
-			const cats = await api.categories(this.query || null);
+			const cats = await api.categories(this.query || null, this.scope);
 			if (token === this.catsToken) this.categories = cats;
 		} catch (e) {
 			if (token === this.catsToken) this.fail("Could not load categories", e);
@@ -329,6 +378,7 @@ class LibraryState {
 	}
 
 	async reload() {
+		this.normalizeSort();
 		await Promise.all([this.loadBooks(), this.loadCategories(), this.loadProgress()]);
 		if (this.info) {
 			api.currentLibrary().then(
@@ -373,6 +423,13 @@ class LibraryState {
 
 	clearText() {
 		this.applyTextNow("");
+		this.queryChanged();
+	}
+
+	setScope(scope: Scope) {
+		if (scope === this.scopePref) return;
+		this.scopePref = scope;
+		this.normalizeSort();
 		this.queryChanged();
 	}
 
@@ -440,7 +497,7 @@ class LibraryState {
 	setSort(field: SortField, descending?: boolean) {
 		if (descending === undefined) {
 			if (this.sortBy === field) descending = !this.descending;
-			else descending = field === "added" || field === "published" || field === "modified" || field === "rating" || field === "size";
+			else descending = field === "added" || field === "published" || field === "modified" || field === "rating" || field === "size" || field === "duration";
 		}
 		this.sortBy = field;
 		this.descending = descending;
@@ -511,7 +568,8 @@ class LibraryState {
 		if (i === undefined) return;
 		const { comments: _c, uuid: _u, path: _p, files: _f, ...summary } = book;
 		const next = this.books.slice();
-		next[i] = summary;
+		const old = next[i];
+		next[i] = { ...summary, kind: old.kind, audiobookId: old.audiobookId, audio: old.audio, pairedBookId: old.pairedBookId };
 		this.books = next;
 	}
 
@@ -537,9 +595,22 @@ class LibraryState {
 		} else toast.error("This book has no files");
 	}
 
-	readSelected() {
+	openEntry(book: BookSummary) {
+		if (isAudioEntry(book)) this.playAudio(book);
+		else this.readBook(book);
+	}
+
+	openSelected() {
 		const b = this.selectedBooks[0];
-		if (b) this.readBook(b);
+		if (b) this.openEntry(b);
+	}
+
+	playAudio(book: BookSummary) {
+		if (book.audiobookId === null) return;
+		api.audioOpen(book.audiobookId).then(
+			() => toast.info(`Opened "${book.title}" in your audio player`),
+			(e) => this.fail("Could not open audiobook", e)
+		);
 	}
 
 	openExternally(book: BookSummary) {
@@ -549,7 +620,52 @@ class LibraryState {
 	}
 
 	showInFolder(book: BookSummary) {
+		if (isAudioEntry(book)) return this.showAudioInFolder(book);
 		api.showInFolder(book.id).catch((e) => this.fail("Could not show in folder", e));
+	}
+
+	showAudioInFolder(book: BookSummary) {
+		if (book.audiobookId === null) return;
+		api.audioShowInFolder(book.audiobookId).catch((e) => this.fail("Could not show in folder", e));
+	}
+
+	async linkAudio(audiobookId: number, bookId: number) {
+		try {
+			await api.audioLink(audiobookId, bookId);
+			toast.success("Audiobook linked to ebook");
+			const wasSelected = this.selectedBooks.some((b) => b.audiobookId === audiobookId);
+			await this.reload();
+			const merged = this.indexById.get(bookId);
+			if (wasSelected && !this.selected.size && merged !== undefined) this.selectIndex(merged);
+			return true;
+		} catch (e) {
+			this.fail("Could not link audiobook", e);
+			return false;
+		}
+	}
+
+	async unlinkAudio(audiobookId: number, bookId: number) {
+		try {
+			await api.audioUnlink(audiobookId, bookId);
+			toast.success("Audiobook unlinked from ebook");
+			await this.reload();
+			return true;
+		} catch (e) {
+			this.fail("Could not unlink audiobook", e);
+			return false;
+		}
+	}
+
+	async resetAudioLink(audiobookId: number) {
+		try {
+			await api.audioResetLink(audiobookId);
+			toast.success("Matching is automatic again");
+			await this.reload();
+			return true;
+		} catch (e) {
+			this.fail("Could not reset matching", e);
+			return false;
+		}
 	}
 
 	editSelected() {
@@ -569,11 +685,11 @@ class LibraryState {
 	}
 
 	sendSelected() {
-		if (this.selected.size) this.devicesOpen = true;
+		if (this.selectedIds.length) this.devicesOpen = true;
 	}
 
 	askDelete() {
-		if (this.selected.size) this.deleteOpen = true;
+		if (this.selectedIds.length) this.deleteOpen = true;
 	}
 
 	async deleteSelected() {
@@ -602,11 +718,11 @@ class LibraryState {
 	}
 
 	askDownloadMetadata() {
-		if (this.selected.size && !this.metaRunning) this.metaOpen = true;
+		if (this.selectedIds.length && !this.metaRunning) this.metaOpen = true;
 	}
 
 	async downloadMetadataSelected() {
-		const books = this.selectedBooks;
+		const books = this.selectedEbooks;
 		if (!books.length || this.metaRunning) return;
 		this.metaRunning = true;
 		let stop = false;
@@ -723,3 +839,4 @@ export async function pickFolder(title: string): Promise<string | null> {
 }
 
 export const lib = new LibraryState();
+audio.onChanged = () => void lib.reload();
