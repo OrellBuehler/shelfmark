@@ -54,7 +54,14 @@ pub fn create_library(state: State<AppState>, path: String) -> R<LibraryInfo> {
 
 #[tauri::command(async)]
 pub fn list_books(state: State<AppState>, query: ListQuery) -> R<Vec<BookSummary>> {
-    state.current()?.library.list_books(&query).map_err(e)
+    let open = state.current()?;
+    if open.audio.list().map_err(e)?.is_empty() {
+        return match query.scope {
+            Scope::Audiobooks => Ok(Vec::new()),
+            _ => open.library.list_books(&query).map_err(e),
+        };
+    }
+    open.library.list_entries(&query, &open.audio).map_err(e)
 }
 
 #[tauri::command(async)]
@@ -63,12 +70,18 @@ pub fn get_book(state: State<AppState>, id: BookId) -> R<Book> {
 }
 
 #[tauri::command(async)]
-pub fn get_categories(state: State<AppState>, search: Option<String>) -> R<Vec<Category>> {
+pub fn get_categories(
+    state: State<AppState>,
+    search: Option<String>,
+    scope: Option<Scope>,
+) -> R<Vec<Category>> {
     let search = search.filter(|s| !s.trim().is_empty());
-    state
-        .current()?
-        .library
-        .categories(search.as_deref())
+    let open = state.current()?;
+    if open.audio.list().map_err(e)?.is_empty() {
+        return open.library.categories(search.as_deref()).map_err(e);
+    }
+    open.library
+        .categories_entries(scope.unwrap_or_default(), search.as_deref(), &open.audio)
         .map_err(e)
 }
 
@@ -243,6 +256,7 @@ pub fn delete_books(state: State<AppState>, ids: Vec<BookId>) -> R<()> {
     open.library.delete_books(&ids).map_err(e)?;
     for id in ids {
         let _ = open.reading.delete_book(id);
+        let _ = open.audio.delete_book_links(id);
     }
     Ok(())
 }

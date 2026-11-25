@@ -4195,6 +4195,7 @@ dependencies = [
  "image",
  "serde",
  "serde_json",
+ "shelfmark-audio",
  "shelfmark-convert",
  "shelfmark-devices",
  "shelfmark-formats",

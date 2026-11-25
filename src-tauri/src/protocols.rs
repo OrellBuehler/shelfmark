@@ -98,6 +98,26 @@ fn thumbnail(state: &AppState, cover: &Path, width: u32) -> Option<Vec<u8>> {
     Some(out)
 }
 
+fn shrink(original: Vec<u8>, width: u32) -> Vec<u8> {
+    let Ok(img) = image::load_from_memory(&original) else {
+        return original;
+    };
+    if img.width() <= width {
+        return original;
+    }
+    let height = (img.height() as u64 * width as u64 / img.width() as u64).max(1) as u32;
+    let thumb = img
+        .resize_exact(width, height, image::imageops::FilterType::Triangle)
+        .to_rgb8();
+    let mut out = Vec::new();
+    match image::codecs::jpeg::JpegEncoder::new_with_quality(Cursor::new(&mut out), 85)
+        .encode_image(&thumb)
+    {
+        Ok(()) => out,
+        Err(_) => original,
+    }
+}
+
 pub fn cover<R: Runtime>(
     ctx: UriSchemeContext<'_, R>,
     request: Request<Vec<u8>>,
@@ -107,11 +127,20 @@ pub fn cover<R: Runtime>(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let width = query_width(&request);
-        let response = decoded_path(&request)
-            .parse::<i64>()
-            .ok()
-            .and_then(|id| state.current().ok()?.library.cover_path(id).ok().flatten())
-            .and_then(|path| thumbnail(&state, &path, width))
+        let path = decoded_path(&request);
+        let bytes = match path.strip_prefix("a/") {
+            Some(id) => id
+                .parse::<i64>()
+                .ok()
+                .and_then(|id| state.current().ok()?.audio.cover(id).ok().flatten())
+                .map(|thumb| shrink(thumb, width)),
+            None => path
+                .parse::<i64>()
+                .ok()
+                .and_then(|id| state.current().ok()?.library.cover_path(id).ok().flatten())
+                .and_then(|path| thumbnail(&state, &path, width)),
+        };
+        let response = bytes
             .map(|bytes| respond(StatusCode::OK, "image/jpeg", bytes))
             .unwrap_or_else(not_found);
         responder.respond(response);

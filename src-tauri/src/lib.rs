@@ -1,4 +1,6 @@
+mod audio_commands;
 mod commands;
+mod jobs;
 mod protocols;
 mod state;
 
@@ -56,6 +58,18 @@ pub fn run() {
             commands::delete_annotation,
             commands::is_portable,
             commands::restart,
+            audio_commands::audio_status,
+            audio_commands::audio_add_root,
+            audio_commands::audio_update_root,
+            audio_commands::audio_remove_root,
+            audio_commands::audio_scan,
+            audio_commands::job_cancel,
+            audio_commands::audiobook,
+            audio_commands::audio_link,
+            audio_commands::audio_unlink,
+            audio_commands::audio_reset_link,
+            audio_commands::audio_show_in_folder,
+            audio_commands::audio_open,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

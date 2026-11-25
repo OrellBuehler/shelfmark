@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use serde::{Deserialize, Serialize};
+use shelfmark_audio::AudioStore;
 use shelfmark_library::Library;
 use shelfmark_reading::ReadingStore;
 use tauri::{AppHandle, Manager};
@@ -9,6 +10,7 @@ use tauri::{AppHandle, Manager};
 pub struct OpenLibrary {
     pub library: Library,
     pub reading: ReadingStore,
+    pub audio: AudioStore,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -31,6 +33,7 @@ pub struct AppState {
     config: Mutex<Config>,
     config_path: PathBuf,
     pub cache_dir: PathBuf,
+    pub jobs: crate::jobs::Jobs,
 }
 
 impl AppState {
@@ -48,6 +51,7 @@ impl AppState {
             config: Mutex::new(config),
             config_path,
             cache_dir,
+            jobs: crate::jobs::Jobs::default(),
         };
         let last = state.config.lock().unwrap().recent.first().cloned();
         if let Some(last) = last {
@@ -72,8 +76,14 @@ impl AppState {
         }
         .map_err(|e| e.to_string())?;
         let reading = ReadingStore::open(dir).map_err(|e| e.to_string())?;
+        let audio = AudioStore::open(dir).map_err(|e| e.to_string())?;
         let info = info(&library);
-        *self.open.write().unwrap() = Some(Arc::new(OpenLibrary { library, reading }));
+        self.jobs.cancel_all();
+        *self.open.write().unwrap() = Some(Arc::new(OpenLibrary {
+            library,
+            reading,
+            audio,
+        }));
         let mut config = self.config.lock().unwrap();
         config.recent.retain(|r| r.path != info.path);
         config.recent.insert(0, info.clone());

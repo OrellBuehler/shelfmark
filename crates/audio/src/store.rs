@@ -93,7 +93,8 @@ pub struct ScannedBook {
     pub files: Vec<ScannedFile>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Issue {
     pub path: String,
     pub message: String,
