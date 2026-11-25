@@ -3,7 +3,6 @@
 	import Headphones from "@lucide/svelte/icons/headphones";
 	import Layers from "@lucide/svelte/icons/layers";
 	import type { Scope } from "#lib/api";
-	import { audio } from "#lib/stores/audio.svelte";
 	import { lib } from "#lib/stores/library.svelte";
 	import IconButton from "./IconButton.svelte";
 
@@ -14,7 +13,7 @@
 	] satisfies { value: Scope; label: string; icon: typeof Layers }[];
 </script>
 
-{#if audio.hasLocation}
+{#if lib.audioSource}
 	<div class="flex items-center rounded-md bg-muted/70 p-0.5" role="group" aria-label="Show">
 		{#each options as o (o.value)}
 			{@const on = lib.scope === o.value}

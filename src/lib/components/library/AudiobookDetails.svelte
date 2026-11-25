@@ -2,6 +2,8 @@
 	import ArrowRightLeft from "@lucide/svelte/icons/arrow-right-left";
 	import BookOpen from "@lucide/svelte/icons/book-open";
 	import ChevronRight from "@lucide/svelte/icons/chevron-right";
+	import Cloud from "@lucide/svelte/icons/cloud";
+	import ExternalLink from "@lucide/svelte/icons/external-link";
 	import FolderOpen from "@lucide/svelte/icons/folder-open";
 	import Link from "@lucide/svelte/icons/link";
 	import Play from "@lucide/svelte/icons/play";
@@ -136,26 +138,30 @@
 	</div>
 
 	<div class="flex gap-2">
-		<Button class="flex-1" disabled={audioState !== "present"} onclick={() => lib.playAudio(entry)}><Play />Play</Button>
-		<Button
-			variant="outline"
-			size="icon"
-			aria-label="Show in folder"
-			title="Show in folder"
-			disabled={audioState !== "present"}
-			onclick={() => lib.showAudioInFolder(entry)}
-		>
-			<FolderOpen />
-		</Button>
-		<Button
-			variant="outline"
-			size="icon"
-			aria-label="Copy or move"
-			title="Copy or move…"
-			onclick={() => lib.openTransfer([entry.audiobookId!])}
-		>
-			<ArrowRightLeft />
-		</Button>
+		{#if audioState === "remote"}
+			<Button class="flex-1" disabled={!brief?.asin} onclick={() => lib.openOnAudible(entry)}><ExternalLink />Open on Audible</Button>
+		{:else}
+			<Button class="flex-1" disabled={audioState !== "present"} onclick={() => lib.playAudio(entry)}><Play />Play</Button>
+			<Button
+				variant="outline"
+				size="icon"
+				aria-label="Show in folder"
+				title="Show in folder"
+				disabled={audioState !== "present"}
+				onclick={() => lib.showAudioInFolder(entry)}
+			>
+				<FolderOpen />
+			</Button>
+			<Button
+				variant="outline"
+				size="icon"
+				aria-label="Copy or move"
+				title="Copy or move…"
+				onclick={() => lib.openTransfer([entry.audiobookId!])}
+			>
+				<ArrowRightLeft />
+			</Button>
+		{/if}
 	</div>
 
 	{#if audioState === "missing"}
@@ -163,8 +169,8 @@
 			The audio files were not found at the last scan. Connect the drive or folder and scan again.
 		</p>
 	{:else if audioState === "remote"}
-		<p class="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-			Not downloaded yet. Only the catalog entry is known.
+		<p class="flex items-center gap-2 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-[13px]">
+			<Cloud class="size-4 shrink-0 text-sky-600 dark:text-sky-400" />In your Audible library, not downloaded
 		</p>
 	{/if}
 
@@ -198,10 +204,12 @@
 		{#if brief}
 			<dt class="text-muted-foreground">Length</dt>
 			<dd class="tabular-nums">{formatDuration(brief.durationMs)}</dd>
-			<dt class="text-muted-foreground">Format</dt>
-			<dd class="tabular-nums"><span class="uppercase">{brief.format}</span> · {formatSize(brief.size)}</dd>
-			<dt class="text-muted-foreground">Files</dt>
-			<dd class="tabular-nums">{brief.fileCount.toLocaleString()}</dd>
+			{#if audioState !== "remote"}
+				<dt class="text-muted-foreground">Format</dt>
+				<dd class="tabular-nums"><span class="uppercase">{brief.format}</span> · {formatSize(brief.size)}</dd>
+				<dt class="text-muted-foreground">Files</dt>
+				<dd class="tabular-nums">{brief.fileCount.toLocaleString()}</dd>
+			{/if}
 		{/if}
 		{#if entry.publisher}
 			<dt class="text-muted-foreground">Publisher</dt>

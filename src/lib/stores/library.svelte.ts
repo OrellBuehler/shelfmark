@@ -16,6 +16,8 @@ import {
 } from "#lib/api";
 import { sanitizeHtml } from "#lib/components/edit/sanitize";
 import { EBOOK_EXTENSIONS, baseName, errorMessage, pickReadFormat, plural } from "#lib/format";
+import { openLink } from "#lib/links";
+import { audible } from "#lib/stores/audible.svelte";
 import { audio } from "#lib/stores/audio.svelte";
 
 function preview(titles: string[]) {
@@ -52,13 +54,16 @@ const FLAG_LABELS: Record<string, string> = {
 	"audio:true": "Has audiobook",
 	"audio:false": "No audiobook",
 	"ebook:true": "Has ebook",
-	"ebook:false": "No ebook"
+	"ebook:false": "No ebook",
+	"downloaded:true": "Downloaded",
+	"downloaded:false": "Not downloaded"
 };
 
 function labelFor(search: string): string {
 	const parts = splitAnd(search);
 	if (parts && parts.length > 1) {
 		if (parts.length === 2 && parts.includes("audio:true") && parts.includes("ebook:true")) return "Both formats";
+		if (parts.length === 2 && parts.includes("audio:true") && parts.includes("downloaded:false")) return "Not downloaded";
 		return parts.map(labelFor).join(" + ");
 	}
 	if (FLAG_LABELS[search]) return FLAG_LABELS[search];
@@ -95,7 +100,7 @@ export function parseQuery(q: string): { filters: Filter[]; text: string } {
 		if (
 			/^(authors|series|tags|publisher|languages|formats|rating|narrators):"=[^"]*"$/.test(p) ||
 			/^identifiers:\S+:true$/.test(p) ||
-			/^(audio|ebook):(true|false)$/.test(p) ||
+			/^(audio|ebook|downloaded):(true|false)$/.test(p) ||
 			/^duration:[<>=]\S+$/.test(p)
 		)
 			filters.push({ search: p, label: labelFor(p) });
@@ -130,7 +135,9 @@ class LibraryState {
 	sortBy = $state<SortField>("added");
 	descending = $state(true);
 	scopePref = $state<Scope>("all");
-	scope = $derived<Scope>(audio.hasLocation ? this.scopePref : "ebooks");
+	audioSource = $derived(audio.hasLocation || audible.hasTitles);
+	audiobooksExist = $derived(audio.hasAudio || audible.hasTitles);
+	scope = $derived<Scope>(this.audioSource ? this.scopePref : "ebooks");
 
 	view = $state<ViewMode>("grid");
 	coverSize = $state(160);
@@ -189,17 +196,24 @@ class LibraryState {
 	selectedIds = $derived(this.selectedEbooks.map((b) => b.id));
 	selectedSize = $derived(this.selectedBooks.reduce((a, b) => a + b.size, 0));
 	selectedAudiobookIds = $derived([
-		...new Set(this.selectedBooks.map((b) => b.audiobookId).filter((id): id is number => id !== null))
+		...new Set(
+			this.selectedBooks
+				.filter((b) => b.audio?.state !== "remote")
+				.map((b) => b.audiobookId)
+				.filter((id): id is number => id !== null)
+		)
 	]);
 
 	counts = $derived.by(() => {
 		let books = 0;
 		let audiobooks = 0;
+		let remote = 0;
 		for (const b of this.books) {
 			if (!isAudioEntry(b)) books++;
 			if (b.audio) audiobooks++;
+			if (b.audio?.state === "remote") remote++;
 		}
-		return { books, audiobooks };
+		return { books, audiobooks, remote };
 	});
 
 	private booksToken = 0;
@@ -292,6 +306,7 @@ class LibraryState {
 
 	private resetView() {
 		audio.reset();
+		audible.reset();
 		this.books = [];
 		this.categories = [];
 		this.progress = {};
@@ -328,13 +343,13 @@ class LibraryState {
 			(s) => (this.savedSearches = s),
 			(e) => this.fail("Could not load saved searches", e)
 		);
-		await audio.load();
+		await Promise.all([audio.load(), audible.load()]);
 		this.normalizeSort();
 		await Promise.all([this.loadBooks(), this.loadCategories(), this.loadProgress()]);
 	}
 
 	private normalizeSort() {
-		if (this.sortBy !== "duration" || (audio.hasAudio && this.scope !== "ebooks")) return;
+		if (this.sortBy !== "duration" || (this.audiobooksExist && this.scope !== "ebooks")) return;
 		this.sortBy = "added";
 		this.descending = true;
 	}
@@ -601,8 +616,9 @@ class LibraryState {
 	}
 
 	openEntry(book: BookSummary) {
-		if (isAudioEntry(book)) this.playAudio(book);
-		else this.readBook(book);
+		if (!isAudioEntry(book)) this.readBook(book);
+		else if (book.audio?.state === "remote") this.openOnAudible(book);
+		else this.playAudio(book);
 	}
 
 	openSelected() {
@@ -610,8 +626,14 @@ class LibraryState {
 		if (b) this.openEntry(b);
 	}
 
+	openOnAudible(book: BookSummary) {
+		const asin = book.audio?.asin;
+		if (!asin) return toast.error("This title has no Audible ID");
+		void openLink(`https://www.audible.com/pd/${encodeURIComponent(asin)}`);
+	}
+
 	playAudio(book: BookSummary) {
-		if (book.audiobookId === null) return;
+		if (book.audiobookId === null || book.audio?.state === "remote") return;
 		api.audioOpen(book.audiobookId).then(
 			() => toast.info(`Opened "${book.title}" in your audio player`),
 			(e) => this.fail("Could not open audiobook", e)
@@ -630,7 +652,7 @@ class LibraryState {
 	}
 
 	showAudioInFolder(book: BookSummary) {
-		if (book.audiobookId === null) return;
+		if (book.audiobookId === null || book.audio?.state === "remote") return;
 		api.audioShowInFolder(book.audiobookId).catch((e) => this.fail("Could not show in folder", e));
 	}
 
@@ -834,6 +856,18 @@ class LibraryState {
 		} catch (e) {
 			this.fail("Could not open file picker", e);
 		}
+	}
+}
+
+export async function pickFile(title: string, extensions: string[]): Promise<string | null> {
+	if (!inTauri) return "/home/reader/Downloads/AccountsSettings.json";
+	try {
+		const { open } = await import("@tauri-apps/plugin-dialog");
+		const p = await open({ directory: false, multiple: false, title, filters: [{ name: "JSON", extensions }] });
+		return typeof p === "string" ? p : null;
+	} catch (e) {
+		toast.error(`Could not open file picker: ${errorMessage(e)}`);
+		return null;
 	}
 }
 

@@ -25,7 +25,8 @@
 	const count = $derived(lib.selected.size);
 	const ebooks = $derived(lib.selectedIds.length);
 	const audioEntry = $derived(!!first && isAudioEntry(first));
-	const playable = $derived(single && !!first && first.audiobookId !== null);
+	const remote = $derived(single && first?.audio?.state === "remote");
+	const playable = $derived(single && !!first && first.audiobookId !== null && !remote);
 
 	function oncontextmenu(e: MouseEvent) {
 		const target = (e.target as HTMLElement).closest<HTMLElement>("[data-book-id]");
@@ -59,7 +60,7 @@
 			<div class="flex size-12 items-center justify-center rounded-full bg-brand/20"><Headphones class="size-5 text-brand-foreground dark:text-brand" /></div>
 			<div>
 				<h2 class="text-base font-semibold">No audiobooks yet</h2>
-				<p class="mt-1 max-w-sm text-sm text-muted-foreground">Scan your audiobook locations to find audiobooks.</p>
+				<p class="mt-1 max-w-sm text-sm text-muted-foreground">Scan your audiobook locations or sync your Audible library to find audiobooks.</p>
 			</div>
 			<Button size="sm" onclick={() => (lib.settingsOpen = true)}><Settings />Open settings</Button>
 		{:else}
@@ -98,6 +99,11 @@
 						<Headphones />Play audiobook{#if audioEntry}<ContextMenu.Shortcut>Enter</ContextMenu.Shortcut>{/if}
 					</ContextMenu.Item>
 				{/if}
+				{#if remote}
+					<ContextMenu.Item onSelect={() => first && lib.openOnAudible(first)}>
+						<ExternalLink />Open on Audible{#if audioEntry}<ContextMenu.Shortcut>Enter</ContextMenu.Shortcut>{/if}
+					</ContextMenu.Item>
+				{/if}
 				{#if ebooks}
 					<ContextMenu.Separator />
 					<ContextMenu.Item onSelect={() => lib.editSelected()}>
@@ -108,8 +114,10 @@
 					<ContextMenu.Separator />
 					<ContextMenu.Item onSelect={() => lib.sendSelected()}><Send />Send to device</ContextMenu.Item>
 				{/if}
-				{#if !ebooks}<ContextMenu.Separator />{/if}
-				<ContextMenu.Item disabled={!single} onSelect={() => first && lib.showInFolder(first)}><FolderOpen />Show in folder</ContextMenu.Item>
+				{#if !(remote && audioEntry)}
+					{#if !ebooks}<ContextMenu.Separator />{/if}
+					<ContextMenu.Item disabled={!single} onSelect={() => first && lib.showInFolder(first)}><FolderOpen />Show in folder</ContextMenu.Item>
+				{/if}
 				{#if lib.selectedAudiobookIds.length}
 					<ContextMenu.Item onSelect={() => lib.openTransfer()}><ArrowRightLeft />Copy or move…</ContextMenu.Item>
 				{/if}

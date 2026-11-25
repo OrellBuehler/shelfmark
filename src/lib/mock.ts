@@ -1,6 +1,9 @@
 import type {
 	AddOutcome,
 	Annotation,
+	AudibleAccount,
+	AudibleStatus,
+	AudibleSyncResult,
 	AudioBrief,
 	AudioIssue,
 	AudioRoot,
@@ -75,6 +78,7 @@ function params() {
 		noLibrary: sp.has("nolib"),
 		empty: sp.has("empty"),
 		audio: sp.has("audio"),
+		nolibation: sp.has("nolibation"),
 		count: Number(sp.get("n")) || 2000
 	};
 }
@@ -201,6 +205,8 @@ interface AudioMock {
 	issues: AudioIssue[];
 	nextRoot: number;
 	nextJob: number;
+	remotePool: MockAudio[];
+	audible: { source: string | null; lastSync: string | null };
 }
 
 const SUBTITLES = ["A Novel", "Unabridged", "The Complete Story", "A Memoir", "Book One"];
@@ -304,8 +310,66 @@ function generateAudio(books: MockBook[], seed: number): MockAudio[] {
 	return out;
 }
 
+const LIBATION_FILE = "/home/reader/.local/share/Libation/AccountsSettings.json";
+
+const AUDIBLE_ACCOUNTS: AudibleAccount[] = [
+	{ key: "k1", name: "Reader (personal)", locale: "germany", problem: null },
+	{ key: "k2", name: "Family account", locale: "us", problem: "Libation stores this sign-in encrypted" }
+];
+
+function generateRemote(books: MockBook[], seed: number): MockAudio[] {
+	const r = mulberry32(seed);
+	const narrators = Array.from({ length: 8 }, () => `${pick(r, FIRST)} ${pick(r, LAST)}`);
+	return Array.from({ length: 25 }, (_, i) => {
+		const twin = i < 5 && books.length ? books[Math.floor(((i + 0.25) * books.length) / 5)] : null;
+		const title = twin?.title ?? pick(r, [() => `The ${pick(r, ADJ)} ${pick(r, NOUN)}`, () => `${pick(r, NOUN)} of ${pick(r, PLACE)}`, () => `${pick(r, ADJ)} ${pick(r, NOUN)}s`])();
+		const authors = twin?.authors ?? [`${pick(r, FIRST)} ${pick(r, LAST)}`];
+		const added = NOW - Math.floor(r() * 300 * 864e5);
+		return {
+			id: 1001 + i,
+			rootId: null,
+			state: "remote",
+			title,
+			subtitle: null,
+			authors,
+			narrators: [pick(r, narrators)],
+			series: twin?.series ?? null,
+			seriesIndex: twin?.series ? twin.seriesIndex : null,
+			publisher: pick(r, ["Audible Studios", "Tantor Audio", "Penguin Audio"]),
+			language: twin?.languages[0] ?? "eng",
+			genres: twin ? twin.tags.slice(0, 2) : [pick(r, TAGS)],
+			description: `<p>${pick(r, SENT).replace("{n1}", pick(r, NOUN).toLowerCase()).replace("{p}", pick(r, PLACE))}</p>`,
+			asin: "B0" + Math.floor(r() * 1e8).toString(36).toUpperCase().padStart(8, "0"),
+			isbn: null,
+			releaseDate: new Date(Date.UTC(2008 + Math.floor(r() * 16), Math.floor(r() * 12), 1 + Math.floor(r() * 27))).toISOString(),
+			durationMs: Math.round((3 + r() * 24) * 3.6e6),
+			size: 0,
+			format: "AUDIBLE",
+			fileCount: 0,
+			hasCover: r() < 0.95,
+			added: new Date(added).toISOString(),
+			modified: new Date(added).toISOString(),
+			dir: null,
+			files: [],
+			chapters: [],
+			auto: twin?.id ?? null,
+			willBeMissing: false
+		};
+	});
+}
+
 function newAudio(books: MockBook[], scanned: boolean): AudioMock {
-	const au: AudioMock = { roots: [], books: generateAudio(books, 777), links: [], jobs: new Map(), issues: [], nextRoot: 1, nextJob: 0 };
+	const au: AudioMock = {
+		roots: [],
+		books: generateAudio(books, 777),
+		links: [],
+		jobs: new Map(),
+		issues: [],
+		nextRoot: 1,
+		nextJob: 0,
+		remotePool: generateRemote(books, 4242),
+		audible: { source: null, lastSync: null }
+	};
 	if (scanned) {
 		au.roots.push({
 			id: au.nextRoot++,
@@ -351,7 +415,7 @@ function pairOf(au: AudioMock, a: MockAudio, byId: Map<number, MockBook>): { boo
 
 function catalog(s: State) {
 	const on = new Set(s.audio.roots.filter((r) => r.enabled).map((r) => r.id));
-	const list = s.audio.books.filter((a) => a.rootId !== null && on.has(a.rootId));
+	const list = s.audio.books.filter((a) => a.state === "remote" || (a.rootId !== null && on.has(a.rootId)));
 	const byId = new Map(s.books.map((b) => [b.id, b]));
 	const pairs = new Map<number, { bookId: number; manual: boolean }>();
 	const byBook = new Map<number, MockAudio[]>();
@@ -515,8 +579,9 @@ function matchTerm(b: Hit, term: string): boolean {
 		const field = m[1].toLowerCase();
 		let value = m[2];
 		if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) value = value.slice(1, -1);
-		if (field === "audio" || field === "ebook") {
-			res = (field === "audio" ? b.hasAudio : b.hasEbook) === (value.toLowerCase() === "true");
+		if (field === "audio" || field === "ebook" || field === "downloaded") {
+			const has = field === "audio" ? b.hasAudio : field === "ebook" ? b.hasEbook : !!b.audio && b.audio.state !== "remote";
+			res = has === (value.toLowerCase() === "true");
 		} else if (field === "duration") {
 			const t = /^(>=|<=|>|<|=)?\s*(\d+(?:\.\d+)?)/.exec(value);
 			const hours = (b.audio?.durationMs ?? 0) / 3.6e6;
@@ -688,7 +753,8 @@ function audioCategory(subset: Hit[]): Category {
 		{ name: "Has ebook", count: ebook, search: "ebook:true" },
 		{ name: "Both formats", count: audio + ebook - total, search: "audio:true and ebook:true" },
 		{ name: "No audiobook", count: total - audio, search: "audio:false" },
-		{ name: "No ebook", count: total - ebook, search: "ebook:false" }
+		{ name: "No ebook", count: total - ebook, search: "ebook:false" },
+		{ name: "Not downloaded", count: subset.filter((h) => h.audio?.state === "remote").length, search: "audio:true and downloaded:false" }
 	]
 		.filter((i) => i.count > 0 && i.count < total)
 		.map((i) => ({ id: null, ...i }));
@@ -941,6 +1007,66 @@ async function simulateTransfer(
 			await sleep(60);
 		}
 	}
+	onEvent({ event: "done", result });
+}
+
+function audibleStatus(s: State): AudibleStatus {
+	const source = s.audio.audible.source;
+	return {
+		source,
+		detected: params().nolibation ? null : LIBATION_FILE,
+		accounts: source === null ? [] : source === LIBATION_FILE ? AUDIBLE_ACCOUNTS : [AUDIBLE_ACCOUNTS[0]],
+		error: null,
+		lastSync: s.audio.audible.lastSync,
+		titles: s.audio.books.filter((a) => a.state === "remote").length
+	};
+}
+
+function clearRemote(au: AudioMock) {
+	const gone = new Set(au.books.filter((a) => a.state === "remote").map((a) => a.id));
+	au.books = au.books.filter((a) => !gone.has(a.id));
+	au.links = au.links.filter((l) => !gone.has(l.audiobookId));
+}
+
+function startSync(s: State, onEvent: (e: JobEvent<AudibleSyncResult>) => void) {
+	const au = s.audio;
+	if (au.audible.source === null) throw "Audible is not connected";
+	const accounts = audibleStatus(s).accounts;
+	const id = ++au.nextJob;
+	const job = { cancelled: false };
+	au.jobs.set(id, job);
+	void simulateSync(au, accounts, job, onEvent).finally(() => au.jobs.delete(id));
+	return id;
+}
+
+async function simulateSync(au: AudioMock, accounts: AudibleAccount[], job: { cancelled: boolean }, onEvent: (e: JobEvent<AudibleSyncResult>) => void) {
+	const result: AudibleSyncResult = { accounts: 0, titles: 0, added: 0, removed: 0, failed: [] };
+	const progress = (phase: "library" | "covers", done: number, total: number, current: string) =>
+		onEvent({ event: "progress", phase, done, total, current });
+	let fresh: MockAudio[] = [];
+	for (const account of accounts) {
+		if (account.problem) {
+			result.failed.push({ name: account.name, message: account.problem });
+			continue;
+		}
+		for (let i = 1; i <= 10; i++) {
+			if (job.cancelled) return onEvent({ event: "cancelled" });
+			progress("library", Math.round((au.remotePool.length * i) / 10), 0, account.name);
+			await sleep(70);
+		}
+		const known = new Set(au.books.map((a) => a.id));
+		fresh = au.remotePool.filter((a) => !known.has(a.id));
+		au.books.push(...fresh);
+		result.accounts++;
+		result.titles += au.remotePool.length;
+		result.added += fresh.length;
+	}
+	for (let i = 1; i <= fresh.length; i++) {
+		if (job.cancelled) return onEvent({ event: "cancelled" });
+		progress("covers", i, fresh.length, accounts[0]?.name ?? "");
+		await sleep(Math.max(8, 1100 / fresh.length));
+	}
+	au.audible.lastSync = new Date().toISOString();
 	onEvent({ event: "done", result });
 }
 
@@ -1295,6 +1421,21 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 			return transferPlan(s, a.ids, a.destRootId ?? null, a.destFolder ?? null);
 		case "audio_transfer":
 			return startTransfer(s, a);
+		case "audible_status":
+			return audibleStatus(s);
+		case "audible_connect": {
+			await sleep(150);
+			const path = (a.path as string | null) ?? audibleStatus(s).detected;
+			if (!path) throw "No Libation accounts file was found";
+			s.audio.audible.source = path;
+			return audibleStatus(s);
+		}
+		case "audible_disconnect":
+			s.audio.audible = { source: null, lastSync: null };
+			clearRemote(s.audio);
+			return audibleStatus(s);
+		case "audible_sync":
+			return startSync(s, a.onEvent);
 		case "audio_show_in_folder":
 		case "audio_open":
 			audioFile(s, a.id);

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import ArrowRightLeft from "@lucide/svelte/icons/arrow-right-left";
+	import Cloud from "@lucide/svelte/icons/cloud";
+	import ExternalLink from "@lucide/svelte/icons/external-link";
 	import FolderOpen from "@lucide/svelte/icons/folder-open";
 	import Play from "@lucide/svelte/icons/play";
 	import Unlink from "@lucide/svelte/icons/unlink";
@@ -12,6 +14,7 @@
 
 	const a = $derived(summary.audio);
 	const playable = $derived(a?.state === "present");
+	const remote = $derived(a?.state === "remote");
 </script>
 
 {#if a}
@@ -33,43 +36,53 @@
 				{/if}
 				<dt class="text-muted-foreground">Length</dt>
 				<dd class="tabular-nums">{formatDuration(a.durationMs)}</dd>
-				<dt class="text-muted-foreground">Format</dt>
-				<dd class="tabular-nums"><span class="uppercase">{a.format}</span> · {formatSize(a.size)}</dd>
-				<dt class="text-muted-foreground">Files</dt>
-				<dd class="tabular-nums">{a.fileCount.toLocaleString()}</dd>
+				{#if !remote}
+					<dt class="text-muted-foreground">Format</dt>
+					<dd class="tabular-nums"><span class="uppercase">{a.format}</span> · {formatSize(a.size)}</dd>
+					<dt class="text-muted-foreground">Files</dt>
+					<dd class="tabular-nums">{a.fileCount.toLocaleString()}</dd>
+				{/if}
 			</dl>
 			{#if a.state === "missing"}
 				<p class="text-xs text-muted-foreground">
 					The audio files were not found at the last scan. Connect the drive or folder and scan again.
 				</p>
-			{:else if a.state === "remote"}
-				<p class="text-xs text-muted-foreground">Not downloaded yet. Only the catalog entry is known.</p>
+			{:else if remote}
+				<p class="flex items-center gap-2 text-[13px]">
+					<Cloud class="size-4 shrink-0 text-sky-600 dark:text-sky-400" />In your Audible library, not downloaded
+				</p>
 			{/if}
 			{#if a.count > 1}
 				<p class="text-xs text-muted-foreground">{plural(a.count, "audiobook")} are linked to this ebook. The first is shown.</p>
 			{/if}
 			<div class="flex gap-2">
-				<Button size="sm" class="flex-1" disabled={!playable} onclick={() => lib.playAudio(summary)}><Play />Play</Button>
-				<Button
-					variant="outline"
-					size="icon-sm"
-					aria-label="Show audiobook in folder"
-					title="Show audiobook in folder"
-					disabled={!playable}
-					onclick={() => lib.showAudioInFolder(summary)}
-				>
-					<FolderOpen />
-				</Button>
-				<Button
-					variant="outline"
-					size="icon-sm"
-					aria-label="Copy or move audiobook"
-					title="Copy or move…"
-					disabled={summary.audiobookId === null}
-					onclick={() => summary.audiobookId !== null && lib.openTransfer([summary.audiobookId])}
-				>
-					<ArrowRightLeft />
-				</Button>
+				{#if remote}
+					<Button size="sm" class="flex-1" disabled={!a.asin} onclick={() => lib.openOnAudible(summary)}>
+						<ExternalLink />Open on Audible
+					</Button>
+				{:else}
+					<Button size="sm" class="flex-1" disabled={!playable} onclick={() => lib.playAudio(summary)}><Play />Play</Button>
+					<Button
+						variant="outline"
+						size="icon-sm"
+						aria-label="Show audiobook in folder"
+						title="Show audiobook in folder"
+						disabled={!playable}
+						onclick={() => lib.showAudioInFolder(summary)}
+					>
+						<FolderOpen />
+					</Button>
+					<Button
+						variant="outline"
+						size="icon-sm"
+						aria-label="Copy or move audiobook"
+						title="Copy or move…"
+						disabled={summary.audiobookId === null}
+						onclick={() => summary.audiobookId !== null && lib.openTransfer([summary.audiobookId])}
+					>
+						<ArrowRightLeft />
+					</Button>
+				{/if}
 				<Button
 					variant="outline"
 					size="sm"

@@ -4,7 +4,6 @@
 	import type { SortField } from "#lib/api";
 	import { Button } from "#lib/components/ui/button";
 	import * as DropdownMenu from "#lib/components/ui/dropdown-menu";
-	import { audio } from "#lib/stores/audio.svelte";
 	import { lib } from "#lib/stores/library.svelte";
 
 	const all: { value: SortField; label: string }[] = [
@@ -19,7 +18,7 @@
 		{ value: "publisher", label: "Publisher" },
 		{ value: "duration", label: "Length" }
 	];
-	const fields = $derived(audio.hasAudio && lib.scope !== "ebooks" ? all : all.filter((f) => f.value !== "duration"));
+	const fields = $derived(lib.audiobooksExist && lib.scope !== "ebooks" ? all : all.filter((f) => f.value !== "duration"));
 	const current = $derived(fields.find((f) => f.value === lib.sortBy)?.label ?? "Sort");
 </script>
 

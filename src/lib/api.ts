@@ -318,8 +318,38 @@ export interface TransferResult {
 	cancelled: boolean;
 }
 
+export interface AudibleAccount {
+	key: string;
+	name: string;
+	locale: string;
+	problem: string | null;
+}
+
+export interface AudibleStatus {
+	source: string | null;
+	detected: string | null;
+	accounts: AudibleAccount[];
+	error: string | null;
+	lastSync: string | null;
+	titles: number;
+}
+
+export interface AudibleSyncResult {
+	accounts: number;
+	titles: number;
+	added: number;
+	removed: number;
+	failed: { name: string; message: string }[];
+}
+
 export type JobEvent<R = ScanSummary> =
-	| { event: "progress"; phase: "walking" | "reading" | "copying" | "done"; done: number; total: number; current: string | null }
+	| {
+			event: "progress";
+			phase: "walking" | "reading" | "copying" | "library" | "covers" | "done";
+			done: number;
+			total: number;
+			current: string | null;
+	  }
 	| { event: "done"; result: R }
 	| { event: "failed"; message: string }
 	| { event: "cancelled" };
@@ -484,6 +514,10 @@ export const api = {
 			},
 			onProgress
 		),
+	audibleStatus: () => invoke<AudibleStatus>("audible_status"),
+	audibleConnect: (path?: string) => invoke<AudibleStatus>("audible_connect", { path: path ?? null }),
+	audibleDisconnect: () => invoke<AudibleStatus>("audible_disconnect"),
+	audibleSync: (onProgress: (p: JobProgress) => void) => runJob<AudibleSyncResult>("audible_sync", {}, onProgress),
 	audioShowInFolder: (id: AudiobookId) => invoke<void>("audio_show_in_folder", { id }),
 	audioOpen: (id: AudiobookId) => invoke<void>("audio_open", { id })
 };

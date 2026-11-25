@@ -20,6 +20,7 @@
 	import { audio } from "#lib/stores/audio.svelte";
 	import { lib, pickFolder } from "#lib/stores/library.svelte";
 	import { cn } from "#lib/utils";
+	import AudibleSettings from "./AudibleSettings.svelte";
 
 	let { open = $bindable(false) }: { open: boolean } = $props();
 
@@ -309,6 +310,8 @@
 					{/if}
 				</section>
 			{/if}
+
+			<AudibleSettings />
 		</div>
 	</Dialog.Content>
 </Dialog.Root>
