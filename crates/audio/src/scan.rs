@@ -485,9 +485,8 @@ pub fn scan(
             });
         }
         drop(tx);
-        let mut done = 0;
-        for built in rx {
-            done += 1;
+        for (i, built) in rx.into_iter().enumerate() {
+            let done = i + 1;
             summary.audiobooks += built.len() as u32 - 1;
             progress(ScanProgress {
                 phase: "reading",
@@ -510,7 +509,7 @@ pub fn scan(
         return Err(Error::Cancelled);
     }
 
-    summary.complete = !(groups.is_empty() && !indexed_books.is_empty());
+    summary.complete = !groups.is_empty() || indexed_books.is_empty();
     summary.missing = store.finish_scan(root_id, scan_gen, summary.complete)?;
     summary.issues = issues.len() as u32;
     store.set_issues(root_id, &issues)?;
