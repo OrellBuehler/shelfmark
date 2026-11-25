@@ -34,6 +34,7 @@ Reading positions, highlights and notes are stored in a separate `shelfmark.db` 
 | **Metadata** | Edit one book or many at once, read embedded metadata from EPUB and PDF, download metadata and covers from Open Library and Google Books |
 | **Reader** | EPUB, MOBI, AZW3, FB2, CBZ and PDF with highlights, notes, bookmarks, in-book search and light, sepia and dark themes |
 | **Devices** | Send books to Kobo, Kindle, PocketBook and Tolino readers over USB or to any folder, convert EPUB to AZW3 for Kindle, copy books from a device back into the library |
+| **Audiobooks** | Index audiobook folders in place (Libation layout, chapter-split books, M4B and MP3) or keep them inside the library, see which titles you own as ebook, audiobook or both, search by narrator and length, copy or move audiobooks between locations with verification |
 
 <table>
   <tr>
@@ -57,6 +58,15 @@ Reading positions, highlights and notes are stored in a separate `shelfmark.db` 
 | <kbd>Ctrl</kbd>+<kbd>B</kbd> | Toggle the sidebar |
 | <kbd>Ctrl</kbd>+<kbd>A</kbd> | Select all |
 | <kbd>Delete</kbd> | Delete the selected books |
+
+## Audiobooks
+
+Add an audiobook location in the settings. Shelfmark supports two ways of storing them, and both can be used at once:
+
+- **Separate folder**: point Shelfmark at an existing folder, such as the one Libation downloads to. Files are indexed where they are and never moved or renamed.
+- **Inside the library**: audiobooks live in an `Audiobooks` folder next to your ebooks. calibre ignores it, but its Check Library tool lists `Audiobooks` and `shelfmark.db` as unknown items; add both to "Names to ignore" there.
+
+Ebooks and audiobooks of the same title are paired automatically by identifier or by title and author, and can be linked or unlinked by hand. The search understands `audio:true`, `ebook:false`, `narrators:"Name"` and `duration:>10` (hours).
 
 ## Install
 
@@ -94,6 +104,7 @@ Release builds are made by `.github/workflows/release.yml` when a GitHub release
 | `crates/formats` | Ebook metadata, covers and online sources |
 | `crates/devices` | E-reader detection and transfer |
 | `crates/reading` | Reading positions and annotations |
+| `crates/audio` | Audiobook index, folder scanning and transfers |
 | `src-tauri` | Desktop shell and commands |
 | `src` | Svelte interface |
 | `docs` | Website |
