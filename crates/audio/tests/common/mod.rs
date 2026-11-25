@@ -11,7 +11,11 @@ pub struct Dir(PathBuf);
 
 impl Dir {
     pub fn new() -> Self {
-        let p = std::env::temp_dir().join(format!(
+        Self::under(&std::env::temp_dir())
+    }
+
+    pub fn under(base: &Path) -> Self {
+        let p = base.join(format!(
             "shelfmark-audio-{}-{}",
             std::process::id(),
             N.fetch_add(1, Ordering::SeqCst)
