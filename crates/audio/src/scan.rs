@@ -244,6 +244,13 @@ fn assemble(root: &Path, g: &Group, all_tags: Vec<Option<FileTags>>) -> Built {
         fill(&mut tags, &side.tags);
         chapters = side.chapters;
     }
+    if chapters.is_empty()
+        && !g.multi
+        && let Some(c) = g.cue()
+        && let Ok(bytes) = std::fs::read(root.join(&c.rel))
+    {
+        chapters = sidecar::parse_cue(&String::from_utf8_lossy(&bytes));
+    }
     if tags.asin.is_none() {
         tags.asin = g.asin.clone();
     }

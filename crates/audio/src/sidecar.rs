@@ -93,6 +93,35 @@ pub fn parse(bytes: &[u8]) -> Option<Sidecar> {
     })
 }
 
+pub fn parse_cue(text: &str) -> Vec<AudioChapter> {
+    let mut out = Vec::new();
+    let mut title: Option<String> = None;
+    let mut in_track = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with("TRACK ") {
+            in_track = true;
+            title = None;
+        } else if in_track && let Some(rest) = line.strip_prefix("TITLE ") {
+            title = Some(rest.trim().trim_matches('"').to_string());
+        } else if in_track && let Some(rest) = line.strip_prefix("INDEX 01 ") {
+            let parts: Vec<u64> = rest
+                .trim()
+                .split(':')
+                .filter_map(|p| p.parse().ok())
+                .collect();
+            if let [m, s, f] = parts[..] {
+                out.push(AudioChapter {
+                    title: title.take().unwrap_or_else(|| format!("Chapter {}", out.len() + 1)),
+                    start_ms: m * 60_000 + s * 1000 + f * 1000 / 75,
+                });
+            }
+            in_track = false;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,6 +150,17 @@ mod tests {
         assert_eq!(s.tags.duration_ms, 75_780_000);
         let titles: Vec<_> = s.chapters.iter().map(|c| c.title.as_str()).collect();
         assert_eq!(titles, ["Book One", "Book One: Chapter 1", "Credits"]);
+    }
+
+    #[test]
+    fn parses_cue_sheets() {
+        let cue = "FILE \"Dune [B002V1A0WE].m4b\" MP4\n  TRACK 1 AUDIO\n    TITLE \"Opening Credits\"\n    INDEX 01 00:00:00\n  TRACK 2 AUDIO\n    TITLE \"Chapter 1\"\n    INDEX 01 01:30:37\n  TRACK 3 AUDIO\n    INDEX 01 75:00:00\n";
+        let c = parse_cue(cue);
+        assert_eq!(c.len(), 3);
+        assert_eq!((c[0].title.as_str(), c[0].start_ms), ("Opening Credits", 0));
+        assert_eq!((c[1].title.as_str(), c[1].start_ms), ("Chapter 1", 90_493));
+        assert_eq!((c[2].title.as_str(), c[2].start_ms), ("Chapter 3", 4_500_000));
+        assert!(parse_cue("garbage").is_empty());
     }
 
     #[test]

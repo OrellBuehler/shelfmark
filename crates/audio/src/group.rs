@@ -40,6 +40,10 @@ impl Group {
         self.sidecar(Kind::Meta)
     }
 
+    pub fn cue(&self) -> Option<&Entry> {
+        self.sidecar(Kind::Cue)
+    }
+
     pub fn single(&self, index: usize) -> Group {
         let a = self.audio[index].clone();
         let stem = stem_of(&a).to_string();
