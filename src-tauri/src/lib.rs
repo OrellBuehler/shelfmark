@@ -62,6 +62,7 @@ pub fn run() {
             audio_commands::audio_add_root,
             audio_commands::audio_update_root,
             audio_commands::audio_remove_root,
+            audio_commands::audio_forget_missing,
             audio_commands::audio_scan,
             audio_commands::job_cancel,
             audio_commands::audiobook,

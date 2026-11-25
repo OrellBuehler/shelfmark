@@ -89,6 +89,8 @@ pub struct AudioRoot {
     pub last_scan_ok: Option<bool>,
     #[serde(default)]
     pub audiobooks: u32,
+    #[serde(default)]
+    pub missing: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -130,6 +132,7 @@ pub struct AudioBrief {
     pub asin: Option<String>,
     pub state: AudioState,
     pub count: u32,
+    pub has_cover: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

@@ -124,6 +124,11 @@ pub fn audio_remove_root(state: State<AppState>, id: i64) -> R<()> {
 }
 
 #[tauri::command(async)]
+pub fn audio_forget_missing(state: State<AppState>, id: i64) -> R<u32> {
+    state.current()?.audio.forget_missing(id).map_err(e)
+}
+
+#[tauri::command(async)]
 pub fn audio_scan(
     app: AppHandle,
     state: State<AppState>,

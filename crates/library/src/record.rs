@@ -60,6 +60,7 @@ pub struct AudioFacet {
     pub file_count: u32,
     pub asin: Option<String>,
     pub state: AudioState,
+    pub has_cover: bool,
 }
 
 impl AudioFacet {
@@ -73,6 +74,7 @@ impl AudioFacet {
             asin: self.asin.clone(),
             state: self.state,
             count: self.ids.len() as u32,
+            has_cover: self.has_cover,
         }
     }
 }

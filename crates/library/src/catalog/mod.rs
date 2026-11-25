@@ -25,6 +25,7 @@ fn facet(rows: &[&AudiobookRow]) -> AudioFacet {
         size: first.size,
         file_count: first.file_count,
         asin: first.asin.clone(),
+        has_cover: first.has_cover,
         state: if rows.iter().any(|r| r.state == AudioState::Present) {
             AudioState::Present
         } else {

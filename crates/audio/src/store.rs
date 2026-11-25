@@ -145,12 +145,14 @@ fn root_from_row(r: &Row) -> rusqlite::Result<AudioRoot> {
         last_scan: r.get(7)?,
         last_scan_ok: r.get::<_, Option<i64>>(8)?.map(|v| v != 0),
         audiobooks: r.get::<_, i64>(9)?.max(0) as u32,
+        missing: r.get::<_, i64>(10)?.max(0) as u32,
     })
 }
 
 const ROOT_SELECT: &str = "SELECT r.id, r.path, r.in_library, r.managed, r.layout, r.label, \
      r.enabled, r.last_scan, r.last_scan_ok, \
-     (SELECT COUNT(*) FROM audiobook a WHERE a.root_id = r.id AND a.state = 'present') \
+     (SELECT COUNT(*) FROM audiobook a WHERE a.root_id = r.id AND a.state = 'present'), \
+     (SELECT COUNT(*) FROM audiobook a WHERE a.root_id = r.id AND a.state = 'missing') \
      FROM audio_root r";
 
 impl AudioStore {
