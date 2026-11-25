@@ -156,7 +156,7 @@ fn sort_records(recs: Vec<&Record>, by: SortField, descending: bool) -> Vec<&Rec
                     text: String::new(),
                     num: f64::from(r.rating),
                 },
-                SortField::Size => SortKey {
+                SortField::Size | SortField::Duration => SortKey {
                     missing: false,
                     text: String::new(),
                     num: r.size as f64,

@@ -96,6 +96,7 @@ fn large_library_timings() {
             search: if s.is_empty() { None } else { Some(s.into()) },
             sort_by: SortField::Title,
             descending: false,
+            ..Default::default()
         })
         .unwrap()
         .len()

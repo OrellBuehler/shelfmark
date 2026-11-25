@@ -2,6 +2,10 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+mod audio;
+
+pub use audio::*;
+
 pub type BookId = i64;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -44,6 +48,14 @@ pub struct BookSummary {
     pub timestamp: String,
     pub pubdate: Option<String>,
     pub last_modified: String,
+    #[serde(default)]
+    pub kind: EntryKind,
+    #[serde(default)]
+    pub audiobook_id: Option<AudiobookId>,
+    #[serde(default)]
+    pub audio: Option<AudioBrief>,
+    #[serde(default)]
+    pub paired_book_id: Option<BookId>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -78,6 +90,7 @@ pub enum SortField {
     Rating,
     Size,
     Publisher,
+    Duration,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -86,6 +99,7 @@ pub struct ListQuery {
     pub search: Option<String>,
     pub sort_by: SortField,
     pub descending: bool,
+    pub scope: Scope,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]

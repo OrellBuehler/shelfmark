@@ -11,6 +11,7 @@ fn list(lib: &Library, search: &str) -> Vec<BookSummary> {
         search: Some(search.into()),
         sort_by: SortField::Title,
         descending: false,
+        ..Default::default()
     })
     .unwrap()
 }
@@ -1072,6 +1073,7 @@ fn list_sorting() {
             search: None,
             sort_by: by,
             descending: desc,
+            ..Default::default()
         })
         .unwrap()
         .into_iter()

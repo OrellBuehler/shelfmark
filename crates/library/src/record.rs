@@ -304,6 +304,7 @@ impl Record {
                 .last_modified
                 .as_ref()
                 .map_or_else(|| self.last_modified_raw.replacen(' ', "T", 1), dates::iso),
+            ..Default::default()
         }
     }
 
