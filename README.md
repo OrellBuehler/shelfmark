@@ -66,7 +66,9 @@ Add an audiobook location in the settings. Shelfmark supports two ways of storin
 - **Separate folder**: point Shelfmark at an existing folder, such as the one Libation downloads to. Files are indexed where they are and never moved or renamed.
 - **Inside the library**: audiobooks live in an `Audiobooks` folder next to your ebooks. calibre ignores it, but its Check Library tool lists `Audiobooks` and `shelfmark.db` as unknown items; add both to "Names to ignore" there.
 
-Ebooks and audiobooks of the same title are paired automatically by identifier or by title and author, and can be linked or unlinked by hand. The search understands `audio:true`, `ebook:false`, `narrators:"Name"` and `duration:>10` (hours).
+Ebooks and audiobooks of the same title are paired automatically by identifier or by title and author, and can be linked or unlinked by hand. The search understands `audio:true`, `ebook:false`, `narrators:"Name"`, `duration:>10` (hours) and `downloaded:false`.
+
+If [Libation](https://github.com/rmcrackan/Libation) is installed, Shelfmark can read your Audible library through Libation's sign-in and list the titles you own but have not downloaded. This is read-only: Shelfmark does not download or decrypt Audible titles, and it stores no Audible credentials of its own. Sign-ins that Libation stores encrypted are not supported.
 
 ## Install
 
@@ -105,6 +107,7 @@ Release builds are made by `.github/workflows/release.yml` when a GitHub release
 | `crates/devices` | E-reader detection and transfer |
 | `crates/reading` | Reading positions and annotations |
 | `crates/audio` | Audiobook index, folder scanning and transfers |
+| `crates/audible` | Read-only Audible library sync |
 | `src-tauri` | Desktop shell and commands |
 | `src` | Svelte interface |
 | `docs` | Website |
