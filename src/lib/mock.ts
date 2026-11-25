@@ -25,7 +25,10 @@ import type {
 	Scope,
 	SendOutcome,
 	SortField,
-	SourceResult
+	SourceResult,
+	TransferPlan,
+	TransferPlanItem,
+	TransferResult
 } from "./api";
 import { generatedCover } from "./covers";
 import { EBOOK_EXTENSIONS, baseName, hashString } from "./format";
@@ -295,6 +298,9 @@ function generateAudio(books: MockBook[], seed: number): MockAudio[] {
 		);
 	}
 	for (const i of [7, 31]) out[Math.min(i, out.length - 1)].willBeMissing = true;
+	const failing = out[Math.min(60, out.length - 1)];
+	failing.title = "The Failing Lighthouse";
+	failing.dir = `${failing.authors[0]}/The Failing Lighthouse`;
 	return out;
 }
 
@@ -311,7 +317,8 @@ function newAudio(books: MockBook[], scanned: boolean): AudioMock {
 			enabled: true,
 			lastScan: new Date(NOW).toISOString(),
 			lastScanOk: true,
-			audiobooks: 0
+			audiobooks: 0,
+			missing: 0
 		});
 		for (const a of au.books) {
 			a.rootId = 1;
@@ -331,7 +338,7 @@ function sampleIssues(root: string): AudioIssue[] {
 
 function brief(list: MockAudio[]): AudioBrief {
 	const a = list[0];
-	return { narrators: a.narrators, durationMs: a.durationMs, format: a.format, fileCount: a.fileCount, size: a.size, asin: a.asin, state: a.state, count: list.length };
+	return { narrators: a.narrators, durationMs: a.durationMs, format: a.format, fileCount: a.fileCount, size: a.size, asin: a.asin, state: a.state, count: list.length, hasCover: a.hasCover };
 }
 
 function pairOf(au: AudioMock, a: MockAudio, byId: Map<number, MockBook>): { bookId: number; manual: boolean } | null {
@@ -748,8 +755,13 @@ function fakeResults(q: IdentifyQuery): SourceResult[] {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+function rootInfo(au: AudioMock, r: AudioRoot): AudioRoot {
+	const own = au.books.filter((a) => a.rootId === r.id);
+	return { ...r, audiobooks: own.length, missing: own.filter((a) => a.state === "missing").length };
+}
+
 function audioStatus(s: State) {
-	const roots = s.audio.roots.map((r) => ({ ...r, audiobooks: s.audio.books.filter((a) => a.rootId === r.id).length }));
+	const roots = s.audio.roots.map((r) => rootInfo(s.audio, r));
 	return {
 		roots,
 		audiobooks: roots.filter((r) => r.enabled).reduce((n, r) => n + r.audiobooks, 0),
@@ -840,6 +852,96 @@ function audiobookInfo(s: State, id: number): AudiobookInfo {
 		link: book && pair ? { book: summary(book), manual: pair.manual } : null,
 		candidates: book ? [] : candidatesFor(s, a)
 	};
+}
+
+function transferPlan(s: State, ids: number[], destRootId: number | null, destFolder: string | null): TransferPlan {
+	const au = s.audio;
+	const root = destRootId === null ? null : au.roots.find((r) => r.id === destRootId);
+	if (destRootId !== null && !root) throw `location ${destRootId} not found`;
+	if (root && !root.managed) throw "Shelfmark is not allowed to add files to this location";
+	if (!root && !destFolder) throw "No destination was chosen";
+	const destPath = root ? (root.inLibrary ? `${s.library?.path}/${root.path}` : root.path) : (destFolder as string);
+	const taken = new Set<string>();
+	const items = ids.map((id): TransferPlanItem => {
+		const a = au.books.find((x) => x.id === id);
+		if (!a) throw `audiobook ${id} not found`;
+		const files = a.files.map((f) => ({ src: `${a.dir}/${f.relPath}`, dest: `${a.dir}/${f.relPath}`, size: f.size }));
+		const dir = a.dir ?? a.title;
+		let skip: string | null = null;
+		if (a.rootId === null || a.state !== "present") skip = "files are not available";
+		else if (root && a.rootId === root.id) skip = "already in this location";
+		else if (!taken.add(dir.toLowerCase())) skip = "another selected audiobook uses the same folder name";
+		else if (a.id % 9 === 0) skip = `folder already exists: ${dir}`;
+		return { audiobookId: id, title: a.title, destDir: dir, key: dir, files, bytes: files.reduce((n, f) => n + f.size, 0), skip };
+	});
+	const totalBytes = items.filter((i) => !i.skip).reduce((n, i) => n + i.bytes, 0);
+	const freeBytes = root?.inLibrary ? null : /full/i.test(destPath) ? 50e6 : 120e9;
+	return { items, totalBytes, freeBytes, enoughSpace: freeBytes === null || freeBytes > totalBytes, destPath };
+}
+
+function startTransfer(s: State, a: Record<string, any>) {
+	const au = s.audio;
+	const mode = a.mode as "copy" | "move";
+	if (mode === "move" && a.destRootId === null) throw "moving is only possible between audiobook locations";
+	const plan = transferPlan(s, a.ids, a.destRootId, a.destFolder);
+	const id = ++au.nextJob;
+	const job = { cancelled: false };
+	au.jobs.set(id, job);
+	void simulateTransfer(au, plan, mode, a.destRootId, job, a.onEvent).finally(() => au.jobs.delete(id));
+	return id;
+}
+
+async function simulateTransfer(
+	au: AudioMock,
+	plan: TransferPlan,
+	mode: "copy" | "move",
+	destRootId: number | null,
+	job: { cancelled: boolean },
+	onEvent: (e: JobEvent<TransferResult>) => void
+) {
+	if (!plan.enoughSpace) return onEvent({ event: "failed", message: "not enough free space at the destination" });
+	const result: TransferResult = { done: 0, skipped: [], failed: [], bytes: 0, cancelled: false };
+	const todo = plan.items.filter((i) => !i.skip);
+	const steps = Math.max(2, Math.min(14, Math.round(80 / Math.max(1, todo.length))));
+	const progress = (done: number, current: string) => onEvent({ event: "progress", phase: "copying", done, total: plan.totalBytes, current });
+	let done = 0;
+	for (const item of plan.items) {
+		if (item.skip) {
+			result.skipped.push({ audiobookId: item.audiobookId, title: item.title, message: item.skip });
+			continue;
+		}
+		const failing = /fail/i.test(item.title);
+		let stopped = false;
+		for (let k = 1; k <= steps; k++) {
+			if (job.cancelled) {
+				stopped = true;
+				break;
+			}
+			progress(done + (item.bytes * k) / steps, item.title);
+			await sleep(35);
+			if (failing && k === Math.ceil(steps / 2)) break;
+		}
+		if (stopped) {
+			result.cancelled = true;
+			break;
+		}
+		done += item.bytes;
+		if (failing) {
+			result.failed.push({ audiobookId: item.audiobookId, title: item.title, message: `copy does not match the original: ${plan.destPath}/${item.destDir}` });
+			continue;
+		}
+		result.done++;
+		result.bytes += item.bytes;
+		const book = au.books.find((x) => x.id === item.audiobookId);
+		if (mode === "move" && destRootId !== null && book) book.rootId = destRootId;
+	}
+	if (mode === "copy" && result.done > 0 && destRootId !== null) {
+		for (let i = 1; i <= 6; i++) {
+			onEvent({ event: "progress", phase: i < 4 ? "walking" : "reading", done: i, total: i < 4 ? 0 : 6, current: plan.destPath });
+			await sleep(60);
+		}
+	}
+	onEvent({ event: "done", result });
 }
 
 function audioFile(s: State, id: number) {
@@ -1037,6 +1139,10 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 				{
 					id: "folder-backup", name: "Backup folder", kind: "folder", root: "/mnt/nas/ebook-backup", booksDir: "/mnt/nas/ebook-backup",
 					totalBytes: 500e9, freeBytes: 120e9, supportedFormats: ["EPUB", "PDF", "MOBI", "AZW3"], info: []
+				} satisfies Device,
+				{
+					id: "folder-usb-full", name: "USB stick (almost full)", kind: "folder", root: "/media/reader/USB-full", booksDir: "/media/reader/USB-full",
+					totalBytes: 16e9, freeBytes: 50e6, supportedFormats: ["EPUB", "PDF"], info: []
 				} satisfies Device
 			];
 		case "add_folder_device": {
@@ -1136,7 +1242,8 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 				enabled: true,
 				lastScan: null,
 				lastScanOk: null,
-				audiobooks: 0
+				audiobooks: 0,
+				missing: 0
 			};
 			s.audio.roots.push(root);
 			return root;
@@ -1150,7 +1257,13 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 			if (p.layout !== undefined) root.layout = p.layout;
 			if (p.label !== undefined) root.label = p.label.trim() || null;
 			if (p.enabled !== undefined) root.enabled = p.enabled;
-			return { ...root, audiobooks: s.audio.books.filter((x) => x.rootId === root.id).length };
+			return rootInfo(s.audio, root);
+		}
+		case "audio_forget_missing": {
+			const gone = new Set(s.audio.books.filter((x) => x.rootId === a.id && x.state === "missing").map((x) => x.id));
+			s.audio.books = s.audio.books.filter((x) => !gone.has(x.id));
+			s.audio.links = s.audio.links.filter((l) => !gone.has(l.audiobookId));
+			return gone.size;
 		}
 		case "audio_remove_root":
 			for (const x of s.audio.books) if (x.rootId === a.id) x.rootId = null;
@@ -1177,6 +1290,11 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 		case "audio_reset_link":
 			s.audio.links = s.audio.links.filter((l) => l.audiobookId !== a.audiobookId);
 			return null;
+		case "audio_transfer_plan":
+			await sleep(120);
+			return transferPlan(s, a.ids, a.destRootId ?? null, a.destFolder ?? null);
+		case "audio_transfer":
+			return startTransfer(s, a);
 		case "audio_show_in_folder":
 		case "audio_open":
 			audioFile(s, a.id);

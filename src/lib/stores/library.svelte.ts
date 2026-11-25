@@ -157,6 +157,8 @@ class LibraryState {
 	bulkIds = $state.raw<number[]>([]);
 	devicesOpen = $state(false);
 	settingsOpen = $state(false);
+	transferOpen = $state(false);
+	transferIds = $state.raw<number[]>([]);
 	deleteOpen = $state(false);
 	metaOpen = $state(false);
 	metaRunning = false;
@@ -186,6 +188,9 @@ class LibraryState {
 	selectedEbooks = $derived(this.selectedBooks.filter((b) => !isAudioEntry(b)));
 	selectedIds = $derived(this.selectedEbooks.map((b) => b.id));
 	selectedSize = $derived(this.selectedBooks.reduce((a, b) => a + b.size, 0));
+	selectedAudiobookIds = $derived([
+		...new Set(this.selectedBooks.map((b) => b.audiobookId).filter((id): id is number => id !== null))
+	]);
 
 	counts = $derived.by(() => {
 		let books = 0;
@@ -627,6 +632,12 @@ class LibraryState {
 	showAudioInFolder(book: BookSummary) {
 		if (book.audiobookId === null) return;
 		api.audioShowInFolder(book.audiobookId).catch((e) => this.fail("Could not show in folder", e));
+	}
+
+	openTransfer(ids: number[] = this.selectedAudiobookIds) {
+		if (!ids.length) return;
+		this.transferIds = ids;
+		this.transferOpen = true;
 	}
 
 	async linkAudio(audiobookId: number, bookId: number) {

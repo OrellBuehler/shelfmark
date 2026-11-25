@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ArrowRightLeft from "@lucide/svelte/icons/arrow-right-left";
 	import BookOpen from "@lucide/svelte/icons/book-open";
 	import ExternalLink from "@lucide/svelte/icons/external-link";
 	import FolderOpen from "@lucide/svelte/icons/folder-open";
@@ -239,6 +240,11 @@
 				<p class="mt-0.5 text-[13px] text-muted-foreground tabular-nums">{formatSize(lib.selectedSize)} in total</p>
 			</div>
 			<div class="flex flex-col gap-2">
+				{#if lib.selectedAudiobookIds.length}
+					<Button variant="outline" onclick={() => lib.openTransfer()}>
+						<ArrowRightLeft />Copy or move {plural(lib.selectedAudiobookIds.length, "audiobook")}…
+					</Button>
+				{/if}
 				{#if lib.selectedIds.length}
 					<Button onclick={() => lib.editSelected()}><Pencil />Edit {plural(lib.selectedIds.length, "book")}</Button>
 					<Button variant="outline" onclick={() => lib.sendSelected()}><Send />Send to device</Button>

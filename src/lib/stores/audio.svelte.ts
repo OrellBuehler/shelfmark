@@ -60,6 +60,11 @@ class AudioState {
 		}
 	}
 
+	async refresh() {
+		await this.load();
+		this.onChanged?.();
+	}
+
 	async addRoot(inLibrary: boolean, path?: string) {
 		try {
 			const root = await api.audioAddRoot(inLibrary, path);
@@ -90,6 +95,16 @@ class AudioState {
 			toast.success("Location removed", { description: "Your files were not touched." });
 		} catch (e) {
 			this.fail("Could not remove location", e);
+		}
+	}
+
+	async forgetMissing(id: number) {
+		try {
+			const n = await api.audioForgetMissing(id);
+			await this.refresh();
+			toast.success(`Forgot ${plural(n, "missing audiobook")}`, { description: "Your files were not touched." });
+		} catch (e) {
+			this.fail("Could not forget missing audiobooks", e);
 		}
 	}
 

@@ -14,6 +14,7 @@
 	import Sidebar from "#lib/components/library/Sidebar.svelte";
 	import StatusBar from "#lib/components/library/StatusBar.svelte";
 	import TopBar from "#lib/components/library/TopBar.svelte";
+	import TransferDialog from "#lib/components/library/TransferDialog.svelte";
 	import Welcome from "#lib/components/library/Welcome.svelte";
 	import { isEditable, plural } from "#lib/format";
 	import { lib } from "#lib/stores/library.svelte";
@@ -179,6 +180,7 @@
 	<BulkEditDialog bind:open={lib.bulkOpen} bookIds={lib.bulkIds} onsaved={() => lib.reload()} />
 	<DevicesSheet bind:open={lib.devicesOpen} selectedIds={lib.selectedIds} onchanged={() => lib.reload()} />
 	<SettingsDialog bind:open={lib.settingsOpen} />
+	<TransferDialog bind:open={lib.transferOpen} ids={lib.transferIds} />
 
 	<AlertDialog.Root bind:open={lib.metaOpen}>
 		<AlertDialog.Content>

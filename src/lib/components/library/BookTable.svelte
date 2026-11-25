@@ -3,7 +3,7 @@
 	import { createVirtualizer } from "@tanstack/svelte-virtual";
 	import ArrowDown from "@lucide/svelte/icons/arrow-down";
 	import ArrowUp from "@lucide/svelte/icons/arrow-up";
-	import { entryHasCover, isAudioEntry, type SortField } from "#lib/api";
+	import { entryHasCover, isAudioEntry, showsAudioCover, type SortField } from "#lib/api";
 	import { coverSrc } from "#lib/covers";
 	import { formatDate, formatDuration, formatSize } from "#lib/format";
 	import { lib } from "#lib/stores/library.svelte";
@@ -196,7 +196,10 @@
 									loading="lazy"
 									decoding="async"
 									draggable="false"
-									class="h-8 w-[22px] rounded-[2px] bg-muted object-cover ring-1 ring-black/10 dark:ring-white/10"
+									class={cn(
+										"h-8 w-[22px] rounded-[2px] bg-muted ring-1 ring-black/10 dark:ring-white/10",
+										showsAudioCover(book) ? "object-contain" : "object-cover"
+									)}
 									onerror={(e) => e.currentTarget.classList.add("invisible")}
 								/>
 							{:else}

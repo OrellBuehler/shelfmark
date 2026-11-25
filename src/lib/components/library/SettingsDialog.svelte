@@ -24,6 +24,7 @@
 	let { open = $bindable(false) }: { open: boolean } = $props();
 
 	let confirming = $state<number | null>(null);
+	let forgetting = $state<number | null>(null);
 	let issuesOpen = $state(false);
 	let adding = $state(false);
 
@@ -34,7 +35,10 @@
 	const ratio = $derived(progress && progress.total ? Math.min(100, (progress.done / progress.total) * 100) : 0);
 
 	$effect(() => {
-		if (!open) confirming = null;
+		if (!open) {
+			confirming = null;
+			forgetting = null;
+		}
 	});
 
 	async function addExisting() {
@@ -65,6 +69,11 @@
 	async function remove(r: AudioRoot) {
 		confirming = null;
 		await audio.removeRoot(r.id);
+	}
+
+	async function forget(r: AudioRoot) {
+		forgetting = null;
+		await audio.forgetMissing(r.id);
 	}
 </script>
 
@@ -180,6 +189,18 @@
 									<div class="truncate font-mono text-[11px] text-muted-foreground" title={fullPath(r)}>{fullPath(r)}</div>
 									<div class="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
 										<span class="tabular-nums">{plural(r.audiobooks, "audiobook")}</span>
+										{#if r.missing > 0}
+											<span aria-hidden="true">·</span>
+											<span class="tabular-nums">{r.missing.toLocaleString()} missing</span>
+											<Button
+												variant="link"
+												size="xs"
+												class="h-auto px-0.5 py-0 text-xs"
+												onclick={() => (forgetting = forgetting === r.id ? null : r.id)}
+											>
+												Forget
+											</Button>
+										{/if}
 										<span aria-hidden="true">·</span>
 										{#if r.lastScan}
 											<span>Scanned {formatDateTime(r.lastScan)}</span>
@@ -235,6 +256,16 @@
 								</label>
 							</div>
 
+							{#if forgetting === r.id}
+								<div class="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-muted p-2.5 text-[13px]">
+									<span class="min-w-0 flex-1">
+										Forget {plural(r.missing, "missing audiobook")}? They are removed from Shelfmark's list. Your files are never touched.
+									</span>
+									<Button size="xs" variant="ghost" onclick={() => (forgetting = null)}>Cancel</Button>
+									<Button size="xs" onclick={() => forget(r)}>Forget</Button>
+								</div>
+							{/if}
+
 							{#if confirming === r.id}
 								<div class="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-destructive/10 p-2.5 text-[13px]">
 									<span class="min-w-0 flex-1">
@@ -247,6 +278,12 @@
 						</li>
 					{/each}
 				</ul>
+			{/if}
+
+			{#if roots.length}
+				<p class="text-xs text-muted-foreground">
+					To copy or move audiobooks between locations, select them in the library and choose Copy or move… from the right-click menu.
+				</p>
 			{/if}
 
 			{#if issues.length}

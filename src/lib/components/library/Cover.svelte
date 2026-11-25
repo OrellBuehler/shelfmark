@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { coverSrc, placeholderHue } from "#lib/covers";
-	import { entryHasCover, type BookSummary } from "#lib/api";
+	import { entryHasCover, showsAudioCover, type BookSummary, type CoverRef } from "#lib/api";
 	import { cn } from "#lib/utils";
 
 	let {
@@ -9,7 +9,7 @@
 		eager = false,
 		class: className
 	}: {
-		book: Pick<BookSummary, "id" | "lastModified" | "title" | "authors" | "hasCover" | "kind" | "audiobookId" | "pairedBookId">;
+		book: CoverRef & Pick<BookSummary, "title" | "authors">;
 		width?: number;
 		eager?: boolean;
 		class?: string;
@@ -20,6 +20,7 @@
 	const hue = $derived(placeholderHue(book.title));
 	const src = $derived(coverSrc(book, width));
 	const showImage = $derived(entryHasCover(book) && !failed);
+	const square = $derived(showsAudioCover(book));
 
 	$effect(() => {
 		void src;
@@ -33,13 +34,24 @@
 	style={showImage ? undefined : `--h:${hue}`}
 >
 	{#if showImage}
+		{#if square}
+			<img
+				{src}
+				alt=""
+				aria-hidden="true"
+				loading={eager ? "eager" : "lazy"}
+				decoding="async"
+				draggable="false"
+				class={cn("absolute inset-0 size-full scale-125 object-cover blur-2xl transition-opacity duration-200", loaded ? "opacity-50" : "opacity-0")}
+			/>
+		{/if}
 		<img
 			{src}
 			alt=""
 			loading={eager ? "eager" : "lazy"}
 			decoding="async"
 			draggable="false"
-			class="size-full object-cover transition-opacity duration-200 {loaded ? 'opacity-100' : 'opacity-0'}"
+			class={cn("relative size-full transition-opacity duration-200", square ? "object-contain" : "object-cover", loaded ? "opacity-100" : "opacity-0")}
 			onload={() => (loaded = true)}
 			onerror={() => (failed = true)}
 		/>

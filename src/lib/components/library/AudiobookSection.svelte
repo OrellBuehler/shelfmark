@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ArrowRightLeft from "@lucide/svelte/icons/arrow-right-left";
 	import FolderOpen from "@lucide/svelte/icons/folder-open";
 	import Play from "@lucide/svelte/icons/play";
 	import Unlink from "@lucide/svelte/icons/unlink";
@@ -58,6 +59,16 @@
 					onclick={() => lib.showAudioInFolder(summary)}
 				>
 					<FolderOpen />
+				</Button>
+				<Button
+					variant="outline"
+					size="icon-sm"
+					aria-label="Copy or move audiobook"
+					title="Copy or move…"
+					disabled={summary.audiobookId === null}
+					onclick={() => summary.audiobookId !== null && lib.openTransfer([summary.audiobookId])}
+				>
+					<ArrowRightLeft />
 				</Button>
 				<Button
 					variant="outline"

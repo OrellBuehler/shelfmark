@@ -1,4 +1,4 @@
-import { coverUrl, inTauri, type BookSummary } from "./api";
+import { coverUrl, inTauri, showsAudioCover, type BookSummary, type CoverRef } from "./api";
 import { hashString } from "./format";
 
 const cache = new Map<string, string>();
@@ -60,12 +60,34 @@ export function generatedCover(title: string, author: string, seed: number): str
 	return uri;
 }
 
-export function coverSrc(
-	book: Pick<BookSummary, "id" | "lastModified" | "title" | "authors" | "hasCover" | "kind" | "audiobookId" | "pairedBookId">,
-	width = 400
-): string {
+export function generatedSquareCover(title: string, author: string, seed: number): string {
+	const key = `sq|${seed}|${title}|${author}`;
+	const hit = cache.get(key);
+	if (hit) return hit;
+	const hue = seed % 360;
+	const bg = `hsl(${hue} 42% 28%)`;
+	const bg2 = `hsl(${(hue + 40) % 360} 50% 18%)`;
+	const accent = `hsl(${(hue + 150) % 360} 65% 66%)`;
+	const light = `hsl(${hue} 40% 94%)`;
+	let bars = "";
+	for (let i = 0; i < 26; i++) {
+		const h = 14 + ((seed >>> (i % 16)) % 7) * 9 + ((i * 37) % 23);
+		bars += `<rect x="${20 + i * 10}" y="${230 - h / 2}" width="5" height="${h}" rx="2.5" fill="${accent}" opacity="${0.4 + (i % 4) * 0.15}"/>`;
+	}
+	const lines = wrap(title, 16, 3);
+	const tspans = lines.map((l, i) => `<tspan x="150" dy="${i === 0 ? 0 : 24}">${esc(l)}</tspan>`).join("");
+	const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${bg}"/><stop offset="1" stop-color="${bg2}"/></linearGradient></defs><rect width="300" height="300" fill="url(#g)"/>${bars}<text x="150" y="62" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="21" fill="${light}">${tspans}</text><text x="150" y="282" text-anchor="middle" font-family="Georgia,serif" font-size="10" letter-spacing="1.6" fill="${light}" opacity=".85">${esc(author.toUpperCase().slice(0, 34))}</text></svg>`;
+	const uri = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+	if (cache.size > 4000) cache.clear();
+	cache.set(key, uri);
+	return uri;
+}
+
+export function coverSrc(book: CoverRef & Pick<BookSummary, "title" | "authors">, width = 400): string {
 	if (inTauri) return coverUrl(book, width);
-	return generatedCover(book.title, book.authors[0] ?? "", hashString(book.title + book.id));
+	const seed = hashString(book.title + book.id);
+	if (showsAudioCover(book)) return generatedSquareCover(book.title, book.authors[0] ?? "", seed);
+	return generatedCover(book.title, book.authors[0] ?? "", seed);
 }
 
 export function placeholderHue(title: string): number {

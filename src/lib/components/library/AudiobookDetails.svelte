@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ArrowRightLeft from "@lucide/svelte/icons/arrow-right-left";
 	import BookOpen from "@lucide/svelte/icons/book-open";
 	import ChevronRight from "@lucide/svelte/icons/chevron-right";
 	import FolderOpen from "@lucide/svelte/icons/folder-open";
@@ -145,6 +146,15 @@
 			onclick={() => lib.showAudioInFolder(entry)}
 		>
 			<FolderOpen />
+		</Button>
+		<Button
+			variant="outline"
+			size="icon"
+			aria-label="Copy or move"
+			title="Copy or move…"
+			onclick={() => lib.openTransfer([entry.audiobookId!])}
+		>
+			<ArrowRightLeft />
 		</Button>
 	</div>
 

@@ -24,7 +24,7 @@
 			: only
 				? "bg-brand text-brand-foreground"
 				: overlay
-					? "bg-black/65 text-white"
+					? "bg-white/90 text-neutral-900 shadow-sm"
 					: "bg-secondary text-secondary-foreground"
 	);
 </script>

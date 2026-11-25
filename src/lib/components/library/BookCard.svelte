@@ -51,7 +51,7 @@
 			</span>
 		{/if}
 		{#if book.audio}
-			<AudioBadge {book} overlay class="pointer-events-none absolute top-1.5 right-1.5" />
+			<AudioBadge {book} overlay class="pointer-events-none absolute top-1.5 right-1.5 size-6 [&>svg]:size-3.5" />
 		{/if}
 		<div class="pointer-events-none absolute inset-x-1.5 bottom-1.5 flex flex-wrap gap-1">
 			{#each shown as f (f)}

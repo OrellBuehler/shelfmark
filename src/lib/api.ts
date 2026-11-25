@@ -25,6 +25,7 @@ export interface AudioBrief {
 	asin: string | null;
 	state: AudioState;
 	count: number;
+	hasCover: boolean;
 }
 
 export interface Metadata {
@@ -243,6 +244,7 @@ export interface AudioRoot {
 	lastScan: string | null;
 	lastScanOk: boolean | null;
 	audiobooks: number;
+	missing: number;
 }
 
 export interface AudioIssue {
@@ -274,14 +276,56 @@ export interface ScanSummary {
 	complete: boolean;
 }
 
-export type JobEvent =
-	| { event: "progress"; phase: "walking" | "reading" | "done"; done: number; total: number; current: string | null }
-	| { event: "done"; result: ScanSummary }
+export interface TransferTarget {
+	destRootId?: number;
+	destFolder?: string;
+}
+
+export interface TransferOptions extends TransferTarget {
+	mode: "copy" | "move";
+	verify: "quick" | "full";
+}
+
+export interface TransferPlanItem {
+	audiobookId: AudiobookId;
+	title: string;
+	destDir: string;
+	key: string;
+	files: { src: string; dest: string; size: number }[];
+	bytes: number;
+	skip: string | null;
+}
+
+export interface TransferPlan {
+	items: TransferPlanItem[];
+	totalBytes: number;
+	freeBytes: number | null;
+	enoughSpace: boolean;
+	destPath: string;
+}
+
+export interface TransferNote {
+	audiobookId: AudiobookId;
+	title: string;
+	message: string;
+}
+
+export interface TransferResult {
+	done: number;
+	skipped: TransferNote[];
+	failed: TransferNote[];
+	bytes: number;
+	cancelled: boolean;
+}
+
+export type JobEvent<R = ScanSummary> =
+	| { event: "progress"; phase: "walking" | "reading" | "copying" | "done"; done: number; total: number; current: string | null }
+	| { event: "done"; result: R }
 	| { event: "failed"; message: string }
 	| { event: "cancelled" };
 
 export type JobProgress = Extract<JobEvent, { event: "progress" }>;
-export type JobEnd = Exclude<JobEvent, { event: "progress" }>;
+export type JobEnd<R = ScanSummary> = Exclude<JobEvent<R>, { event: "progress" }>;
 
 export interface AudiobookFile {
 	relPath: string;
@@ -333,17 +377,17 @@ export function isAudioEntry(b: Pick<BookSummary, "kind" | "pairedBookId">) {
 	return b.kind === "audiobook" || b.pairedBookId !== null;
 }
 
-export function runJob(cmd: string, args: Record<string, unknown>, onProgress: (p: JobProgress) => void) {
+export function runJob<R = ScanSummary>(cmd: string, args: Record<string, unknown>, onProgress: (p: JobProgress) => void) {
 	let id: number | null = null;
 	let cancelled = false;
-	const result = new Promise<JobEnd>((resolve, reject) => {
-		const onEvent = (e: JobEvent) => {
+	const result = new Promise<JobEnd<R>>((resolve, reject) => {
+		const onEvent = (e: JobEvent<R>) => {
 			if (e.event === "progress") onProgress(e);
 			else resolve(e);
 		};
-		let channel: Channel<JobEvent> | ((e: JobEvent) => void) = onEvent;
+		let channel: Channel<JobEvent<R>> | ((e: JobEvent<R>) => void) = onEvent;
 		if (inTauri) {
-			channel = new Channel<JobEvent>();
+			channel = new Channel<JobEvent<R>>();
 			channel.onmessage = onEvent;
 		}
 		invoke<number>(cmd, { ...args, onEvent: channel }).then((started) => {
@@ -415,28 +459,48 @@ export const api = {
 		invoke<AudioRoot>("audio_add_root", { path: path ?? null, inLibrary }),
 	audioUpdateRoot: (id: number, patch: RootPatch) => invoke<AudioRoot>("audio_update_root", { id, patch }),
 	audioRemoveRoot: (id: number) => invoke<void>("audio_remove_root", { id }),
+	audioForgetMissing: (id: number) => invoke<number>("audio_forget_missing", { id }),
 	audioScan: (rootIds: number[] | null, onProgress: (p: JobProgress) => void) =>
 		runJob("audio_scan", { rootIds }, onProgress),
 	audiobook: (id: AudiobookId) => invoke<AudiobookInfo>("audiobook", { id }),
 	audioLink: (audiobookId: AudiobookId, bookId: BookId) => invoke<void>("audio_link", { audiobookId, bookId }),
 	audioUnlink: (audiobookId: AudiobookId, bookId: BookId) => invoke<void>("audio_unlink", { audiobookId, bookId }),
 	audioResetLink: (audiobookId: AudiobookId) => invoke<void>("audio_reset_link", { audiobookId }),
+	audioTransferPlan: (ids: AudiobookId[], target: TransferTarget) =>
+		invoke<TransferPlan>("audio_transfer_plan", {
+			ids,
+			destRootId: target.destRootId ?? null,
+			destFolder: target.destFolder ?? null
+		}),
+	audioTransfer: (ids: AudiobookId[], options: TransferOptions, onProgress: (p: JobProgress) => void) =>
+		runJob<TransferResult>(
+			"audio_transfer",
+			{
+				ids,
+				destRootId: options.destRootId ?? null,
+				destFolder: options.destFolder ?? null,
+				mode: options.mode,
+				verify: options.verify
+			},
+			onProgress
+		),
 	audioShowInFolder: (id: AudiobookId) => invoke<void>("audio_show_in_folder", { id }),
 	audioOpen: (id: AudiobookId) => invoke<void>("audio_open", { id })
 };
 
-type CoverRef = Pick<BookSummary, "id" | "lastModified" | "hasCover" | "kind" | "audiobookId" | "pairedBookId">;
+export type CoverRef = Pick<BookSummary, "id" | "lastModified" | "hasCover" | "kind" | "audiobookId" | "pairedBookId" | "audio">;
 
-function audioCover(book: CoverRef) {
-	return book.audiobookId !== null && (isAudioEntry(book) || !book.hasCover);
+export function showsAudioCover(book: CoverRef) {
+	if (book.audiobookId === null) return false;
+	return isAudioEntry(book) ? book.hasCover : !book.hasCover && !!book.audio?.hasCover;
 }
 
 export function entryHasCover(book: CoverRef) {
-	return book.hasCover || audioCover(book);
+	return book.hasCover || showsAudioCover(book);
 }
 
 export function coverUrl(book: CoverRef, width = 400) {
-	const path = audioCover(book) ? `a/${book.audiobookId}` : String(book.id);
+	const path = showsAudioCover(book) ? `a/${book.audiobookId}` : String(book.id);
 	return `${convertFileSrc(path, "cover")}?w=${width}&v=${encodeURIComponent(book.lastModified)}`;
 }
 

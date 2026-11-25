@@ -3,6 +3,7 @@
 	import BookPlus from "@lucide/svelte/icons/book-plus";
 	import ExternalLink from "@lucide/svelte/icons/external-link";
 	import FolderOpen from "@lucide/svelte/icons/folder-open";
+	import ArrowRightLeft from "@lucide/svelte/icons/arrow-right-left";
 	import Headphones from "@lucide/svelte/icons/headphones";
 	import Pencil from "@lucide/svelte/icons/pencil";
 	import SearchX from "@lucide/svelte/icons/search-x";
@@ -109,6 +110,9 @@
 				{/if}
 				{#if !ebooks}<ContextMenu.Separator />{/if}
 				<ContextMenu.Item disabled={!single} onSelect={() => first && lib.showInFolder(first)}><FolderOpen />Show in folder</ContextMenu.Item>
+				{#if lib.selectedAudiobookIds.length}
+					<ContextMenu.Item onSelect={() => lib.openTransfer()}><ArrowRightLeft />Copy or move…</ContextMenu.Item>
+				{/if}
 				{#if ebooks}
 					<ContextMenu.Separator />
 					<ContextMenu.Item variant="destructive" onSelect={() => lib.askDelete()}>
