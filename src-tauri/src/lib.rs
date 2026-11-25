@@ -1,3 +1,4 @@
+mod audible_commands;
 mod audio_commands;
 mod commands;
 mod jobs;
@@ -73,6 +74,10 @@ pub fn run() {
             audio_commands::audio_open,
             audio_commands::audio_transfer_plan,
             audio_commands::audio_transfer,
+            audible_commands::audible_status,
+            audible_commands::audible_connect,
+            audible_commands::audible_disconnect,
+            audible_commands::audible_sync,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

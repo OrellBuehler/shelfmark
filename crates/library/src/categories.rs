@@ -270,6 +270,7 @@ pub fn from_records(recs: &[&Record]) -> Vec<Category> {
     let mut narrators = HashMap::new();
     let mut stars: HashMap<u8, u32> = HashMap::new();
     let (mut with_audio, mut with_ebook, mut audio_only, mut ebook_only) = (0u32, 0u32, 0u32, 0u32);
+    let mut remote = 0u32;
 
     for r in recs {
         for a in &r.authors {
@@ -323,6 +324,9 @@ pub fn from_records(recs: &[&Record]) -> Vec<Category> {
             });
         }
         if let Some(a) = &r.audio {
+            if a.state == shelfmark_model::AudioState::Remote {
+                remote += 1;
+            }
             for n in &a.narrators {
                 tally(&mut narrators, n.clone(), || {
                     plain("narrators", n, text::author_to_author_sort(n))
@@ -363,6 +367,7 @@ pub fn from_records(recs: &[&Record]) -> Vec<Category> {
         ("Both formats", with_audio + with_ebook - (recs.len() as u32), "audio:true and ebook:true"),
         ("No audiobook", ebook_only, "audio:false"),
         ("No ebook", audio_only, "ebook:false"),
+        ("Not downloaded", remote, "audio:true and downloaded:false"),
     ]
     .into_iter()
     .filter(|(_, n, _)| *n > 0 && (*n as usize) < recs.len())

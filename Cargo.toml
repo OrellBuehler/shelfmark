@@ -14,6 +14,7 @@ shelfmark-formats = { path = "crates/formats" }
 shelfmark-devices = { path = "crates/devices" }
 shelfmark-reading = { path = "crates/reading" }
 shelfmark-audio = { path = "crates/audio" }
+shelfmark-audible = { path = "crates/audible" }
 shelfmark-convert = { path = "crates/convert" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

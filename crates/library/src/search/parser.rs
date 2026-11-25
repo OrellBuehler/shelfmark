@@ -38,6 +38,7 @@ pub const LOCATIONS: &[&str] = &[
     "audio",
     "ebook",
     "duration",
+    "downloaded",
 ];
 
 #[derive(Clone, Debug, PartialEq)]

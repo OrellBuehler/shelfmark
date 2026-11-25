@@ -40,6 +40,7 @@ enum Field {
     Audio,
     Ebook,
     Duration,
+    Downloaded,
 }
 
 const ALL_FIELDS: &[Field] = &[
@@ -86,6 +87,7 @@ fn field_for(location: &str) -> Option<Field> {
         "audio" | "audiobook" => Field::Audio,
         "ebook" => Field::Ebook,
         "duration" => Field::Duration,
+        "downloaded" => Field::Downloaded,
         _ => return None,
     })
 }
@@ -498,7 +500,7 @@ fn leaf(loc: &str, query: &str, needs: &mut bool) -> Result<Expr> {
             field,
             q: NumQuery::parse_plain(&lowered)?,
         },
-        Field::Audio | Field::Ebook => Leaf::HasValue {
+        Field::Audio | Field::Ebook | Field::Downloaded => Leaf::HasValue {
             field,
             want: !matches!(lowered.trim(), "false" | "no" | "0"),
         },
@@ -592,6 +594,10 @@ fn has_value(c: &Ctx, f: Field) -> bool {
         Field::Formats => !r.formats.is_empty() || r.audio.is_some(),
         Field::Narrators => r.audio.as_ref().is_some_and(|a| !a.narrators.is_empty()),
         Field::Audio => r.audio.is_some(),
+        Field::Downloaded => r
+            .audio
+            .as_ref()
+            .is_some_and(|a| a.state != shelfmark_model::AudioState::Remote),
         Field::Ebook => !r.is_audio_entry() || r.ebook_paired.is_some(),
         Field::Languages => !r.languages.is_empty(),
         Field::Identifiers => !r.identifiers.is_empty(),

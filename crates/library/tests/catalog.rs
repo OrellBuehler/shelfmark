@@ -297,3 +297,25 @@ fn in_memory_categories_match_sql_for_ebooks_and_add_audio_groups() {
     assert_eq!(authors.len(), 1);
     assert_eq!(authors[0].name, "Andy Weir");
 }
+
+#[test]
+fn remote_audiobooks_are_listed_and_filterable() {
+    let (_t, lib, fake, [dune, ..]) = setup();
+    let mut rows = fake.audiobooks().unwrap().as_ref().clone();
+    rows[0].state = shelfmark_model::AudioState::Remote;
+    rows[1].state = shelfmark_model::AudioState::Remote;
+    fake.set(rows, vec![]);
+    let q = |s: &str| {
+        let v = list(&lib, &fake, Scope::All, s);
+        v.iter().map(|b| b.title.clone()).collect::<Vec<_>>()
+    };
+    assert_eq!(q("downloaded:false and audio:true"), ["Dune", "Project Hail Mary"]);
+    assert_eq!(q("downloaded:true"), ["The Hobbit"]);
+    let all = list(&lib, &fake, Scope::All, "");
+    let d = all.iter().find(|b| b.id == dune).unwrap();
+    assert_eq!(d.audio.as_ref().unwrap().state, shelfmark_model::AudioState::Remote);
+    let cats = lib.categories_entries(Scope::All, None, &fake).unwrap();
+    let audio = &cats.iter().find(|c| c.key == "audio").unwrap().items;
+    let item = audio.iter().find(|i| i.name == "Not downloaded").unwrap();
+    assert_eq!((item.count, item.search.as_str()), (2, "audio:true and downloaded:false"));
+}

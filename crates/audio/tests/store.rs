@@ -308,3 +308,53 @@ fn store_is_send_sync() {
     fn check<T: Send + Sync>() {}
     check::<AudioStore>();
 }
+
+#[test]
+fn remote_titles_sync_and_hide_behind_downloaded_copies() {
+    use shelfmark_audio::RemoteBook;
+    let dir = Dir::new();
+    let store = AudioStore::open(dir.path()).unwrap();
+    let r = root(&store, "/books");
+    store
+        .upsert_books(r, 1, &[book("a", "Dune", Some("B000000001"))])
+        .unwrap();
+    let remote = |asin: &str, title: &str| RemoteBook {
+        asin: asin.into(),
+        title: title.into(),
+        authors: vec!["Ann Author".into()],
+        duration_ms: 60_000,
+        added: Some("2020-01-01T00:00:00Z".into()),
+        ..Default::default()
+    };
+    let s = store
+        .sync_remote("acc", &[remote("B000000001", "Dune"), remote("B000000002", "Emma")])
+        .unwrap();
+    assert_eq!((s.total, s.added, s.removed, s.without_cover.len()), (2, 2, 0, 2));
+    assert_eq!(store.remote_count().unwrap(), 2);
+    let rows = store.list().unwrap();
+    assert_eq!(rows.len(), 2);
+    let emma = rows.iter().find(|b| b.title == "Emma").unwrap();
+    assert_eq!((emma.state, emma.root_id), (AudioState::Remote, None));
+    assert_eq!(emma.added, "2020-01-01T00:00:00Z");
+    store.set_link(emma.id, 4, None, LinkState::Manual).unwrap();
+    store.set_cover(emma.id, b"jpg", "audible", 0).unwrap();
+
+    let s = store
+        .sync_remote("acc", &[remote("B000000002", "Emma (new title)"), remote("B000000003", "Zed")])
+        .unwrap();
+    assert_eq!((s.added, s.removed, s.without_cover.len()), (1, 1, 1));
+    let rows = store.list().unwrap();
+    assert!(rows.iter().any(|b| b.title == "Emma (new title)" && b.id == emma.id && b.has_cover));
+    assert_eq!(store.all_links().unwrap().len(), 1);
+
+    store.sync_remote("other", &[remote("B000000009", "Other")]).unwrap();
+    assert_eq!(store.remote_count().unwrap(), 3);
+    store.sync_remote("acc", &[]).unwrap();
+    assert_eq!(store.remote_count().unwrap(), 1);
+
+    store.finish_scan(r, 5, true).unwrap();
+    store.sync_remote("acc", &[remote("B000000001", "Dune")]).unwrap();
+    assert!(store.list().unwrap().iter().any(|b| b.title == "Dune" && b.state == AudioState::Remote));
+    assert_eq!(store.clear_remote().unwrap(), 2);
+    assert_eq!(store.indexed_books(r).unwrap().len(), 1);
+}

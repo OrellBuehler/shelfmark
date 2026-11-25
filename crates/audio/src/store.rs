@@ -93,6 +93,31 @@ pub struct ScannedBook {
     pub files: Vec<ScannedFile>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RemoteBook {
+    pub asin: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub authors: Vec<String>,
+    pub narrators: Vec<String>,
+    pub series: Option<String>,
+    pub series_index: Option<f64>,
+    pub publisher: Option<String>,
+    pub language: Option<String>,
+    pub release_date: Option<String>,
+    pub duration_ms: u64,
+    pub description: Option<String>,
+    pub added: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RemoteSync {
+    pub total: u32,
+    pub added: u32,
+    pub removed: u32,
+    pub without_cover: Vec<(AudiobookId, String)>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Issue {
@@ -611,7 +636,9 @@ impl AudioStore {
             let conn = self.conn()?;
             let mut stmt = conn.prepare(&format!(
                 "SELECT {BOOK_COLUMNS} FROM audiobook a
-                 WHERE a.root_id IS NULL
+                 WHERE (a.root_id IS NULL AND NOT EXISTS (
+                          SELECT 1 FROM audiobook d JOIN audio_root r ON r.id = d.root_id
+                          WHERE d.asin = a.asin AND d.state = 'present' AND r.enabled = 1))
                     OR EXISTS (SELECT 1 FROM audio_root r WHERE r.id = a.root_id AND r.enabled = 1)
                  ORDER BY a.id"
             ))?;
@@ -713,6 +740,133 @@ impl AudioStore {
         }
         self.bump();
         Ok(())
+    }
+
+    pub fn sync_remote(&self, account: &str, books: &[RemoteBook]) -> Result<RemoteSync> {
+        let prefix = format!("audible:{account}:");
+        let mut out = RemoteSync {
+            total: books.len() as u32,
+            ..Default::default()
+        };
+        {
+            let mut conn = self.conn()?;
+            let tx = conn.transaction()?;
+            let mut keep: Vec<String> = Vec::with_capacity(books.len());
+            for b in books {
+                let key = format!("{prefix}{}", b.asin);
+                let existing: Option<AudiobookId> = tx
+                    .query_row(
+                        "SELECT id FROM audiobook WHERE root_id IS NULL AND key = ?1",
+                        [&key],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                let authors = serde_json::to_string(&b.authors)?;
+                let narrators = serde_json::to_string(&b.narrators)?;
+                match existing {
+                    Some(id) => {
+                        tx.execute(
+                            "UPDATE audiobook SET title = ?2, subtitle = ?3, authors = ?4,
+                               narrators = ?5, series = ?6, series_index = ?7, publisher = ?8,
+                               language = ?9, release_date = ?10, description = ?11,
+                               duration_ms = ?12, modified = {NOW_SQL}
+                             WHERE id = ?1"
+                                .replace("{NOW_SQL}", NOW)
+                                .as_str(),
+                            params![
+                                id,
+                                b.title,
+                                b.subtitle,
+                                authors,
+                                narrators,
+                                b.series,
+                                b.series_index,
+                                b.publisher,
+                                b.language,
+                                b.release_date,
+                                b.description,
+                                b.duration_ms as i64
+                            ],
+                        )?;
+                    }
+                    None => {
+                        tx.execute(
+                            "INSERT INTO audiobook
+                               (root_id, key, source, state, asin, title, subtitle, authors,
+                                narrators, series, series_index, publisher, language,
+                                release_date, description, duration_ms, format, meta_source,
+                                added, modified)
+                             VALUES (NULL, ?1, 'audible', 'remote', ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+                                     ?9, ?10, ?11, ?12, ?13, 'AUDIBLE', 'audible',
+                                     COALESCE(?14, {NOW_SQL}), {NOW_SQL})"
+                                .replace("{NOW_SQL}", NOW)
+                                .as_str(),
+                            params![
+                                key,
+                                b.asin,
+                                b.title,
+                                b.subtitle,
+                                authors,
+                                narrators,
+                                b.series,
+                                b.series_index,
+                                b.publisher,
+                                b.language,
+                                b.release_date,
+                                b.description,
+                                b.duration_ms as i64,
+                                b.added
+                            ],
+                        )?;
+                        out.added += 1;
+                    }
+                }
+                keep.push(key);
+            }
+            let mut stmt = tx.prepare(
+                "SELECT id, key FROM audiobook WHERE root_id IS NULL AND key LIKE ?1 || '%'",
+            )?;
+            let stale: Vec<AudiobookId> = stmt
+                .query_map([&prefix], |r| Ok((r.get::<_, AudiobookId>(0)?, r.get::<_, String>(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+                .into_iter()
+                .filter(|(_, key)| !keep.contains(key))
+                .map(|(id, _)| id)
+                .collect();
+            drop(stmt);
+            for id in stale {
+                tx.execute("DELETE FROM audiobook WHERE id = ?1", [id])?;
+                out.removed += 1;
+            }
+            let mut stmt = tx.prepare(
+                "SELECT id, asin FROM audiobook
+                 WHERE root_id IS NULL AND key LIKE ?1 || '%' AND has_cover = 0",
+            )?;
+            out.without_cover = stmt
+                .query_map([&prefix], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            drop(stmt);
+            tx.commit()?;
+        }
+        self.bump();
+        Ok(out)
+    }
+
+    pub fn clear_remote(&self) -> Result<u32> {
+        let n = self
+            .conn()?
+            .execute("DELETE FROM audiobook WHERE root_id IS NULL", [])?;
+        self.bump();
+        Ok(n as u32)
+    }
+
+    pub fn remote_count(&self) -> Result<u32> {
+        let n: i64 = self.conn()?.query_row(
+            "SELECT COUNT(*) FROM audiobook WHERE root_id IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(n as u32)
     }
 
     pub fn all_links(&self) -> Result<Vec<AudioLink>> {

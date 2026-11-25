@@ -14,7 +14,8 @@ pub use group::{Group, group};
 pub use layout::{book_dir, sanitize};
 pub use scan::{ScanProgress, ScanSummary, scan};
 pub use store::{
-    AudioStore, IndexedBook, IndexedFile, Issue, NewRoot, RootPatch, ScannedBook, ScannedFile,
+    AudioStore, IndexedBook, IndexedFile, Issue, NewRoot, RemoteBook, RemoteSync, RootPatch,
+    ScannedBook, ScannedFile,
 };
 pub use tags::{FileTags, LoftyReader, TagReader};
 pub use walk::{AUDIO_EXTENSIONS, Entry, Kind, walk};
