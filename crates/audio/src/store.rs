@@ -572,6 +572,19 @@ impl AudioStore {
         Ok(())
     }
 
+    pub fn issues_in(&self, root_id: i64) -> Result<Vec<Issue>> {
+        let conn = self.conn()?;
+        let mut stmt =
+            conn.prepare("SELECT path, message FROM audio_issue WHERE root_id = ?1 ORDER BY path")?;
+        let rows = stmt.query_map([root_id], |r| {
+            Ok(Issue {
+                path: r.get(0)?,
+                message: r.get(1)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn issues(&self) -> Result<Vec<Issue>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare("SELECT path, message FROM audio_issue ORDER BY path")?;

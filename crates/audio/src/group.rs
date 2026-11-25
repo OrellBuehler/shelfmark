@@ -12,6 +12,7 @@ pub struct Group {
     pub asin: Option<String>,
     pub audio: Vec<Entry>,
     pub sidecars: Vec<Entry>,
+    pub duplicates: Vec<Entry>,
 }
 
 impl Group {
@@ -19,15 +20,88 @@ impl Group {
         self.audio.iter().chain(self.sidecars.iter())
     }
 
-    pub fn cover(&self) -> Option<&Entry> {
-        let covers = || self.sidecars.iter().filter(|e| e.kind == Kind::Cover);
-        covers()
+    fn sidecar(&self, kind: Kind) -> Option<&Entry> {
+        let all = || self.sidecars.iter().filter(move |e| e.kind == kind);
+        let stem = self.audio.first().map(stem_of);
+        all()
             .find(|e| {
                 let name = file_name(&e.rel).to_lowercase();
-                name.starts_with("cover.") || name.starts_with("folder.")
+                kind == Kind::Cover && (name.starts_with("cover.") || name.starts_with("folder."))
             })
-            .or_else(|| covers().next())
+            .or_else(|| all().find(|e| Some(stem_of(e)) == stem))
+            .or_else(|| all().next())
     }
+
+    pub fn cover(&self) -> Option<&Entry> {
+        self.sidecar(Kind::Cover)
+    }
+
+    pub fn meta(&self) -> Option<&Entry> {
+        self.sidecar(Kind::Meta)
+    }
+
+    pub fn single(&self, index: usize) -> Group {
+        let a = self.audio[index].clone();
+        let stem = stem_of(&a).to_string();
+        let mut sidecars: Vec<Entry> = self
+            .sidecars
+            .iter()
+            .filter(|s| stem_of(s) == stem)
+            .cloned()
+            .collect();
+        if index == 0 {
+            let claimed = |s: &Entry| self.audio.iter().any(|a| stem_of(a) == stem_of(s));
+            sidecars.extend(self.sidecars.iter().filter(|s| !claimed(s)).cloned());
+        }
+        Group {
+            key: rel_stem(&a),
+            multi: false,
+            asin: asin_in(&stem),
+            audio: vec![a],
+            sidecars,
+            duplicates: if index == 0 {
+                self.duplicates.clone()
+            } else {
+                Vec::new()
+            },
+        }
+    }
+
+    pub fn names_have_asin(&self) -> bool {
+        self.audio.iter().all(|a| asin_in(stem_of(a)).is_some())
+    }
+}
+
+fn whole_book_asin(e: &Entry) -> Option<String> {
+    let stem = stem_of(e).trim_end();
+    let asin = asin_in(stem)?;
+    stem.to_uppercase()
+        .ends_with(&format!("[{asin}]"))
+        .then_some(asin)
+}
+
+fn drop_duplicates(audio: &mut Vec<Entry>) -> Vec<(String, Entry)> {
+    let asins: Vec<Option<String>> = audio.iter().map(whole_book_asin).collect();
+    let mut best: BTreeMap<&str, usize> = BTreeMap::new();
+    for (i, asin) in asins.iter().enumerate() {
+        let Some(asin) = asin.as_deref() else { continue };
+        match best.get(asin) {
+            Some(&b) if (audio[b].mtime, audio[b].size) >= (audio[i].mtime, audio[i].size) => {}
+            _ => {
+                best.insert(asin, i);
+            }
+        }
+    }
+    let mut kept = Vec::new();
+    let mut dropped = Vec::new();
+    for (i, e) in audio.drain(..).enumerate() {
+        match asins[i].as_deref() {
+            Some(asin) if best.get(asin) != Some(&i) => dropped.push((asin.to_string(), e)),
+            _ => kept.push(e),
+        }
+    }
+    *audio = kept;
+    dropped
 }
 
 fn ext_rank(ext: &str) -> usize {
@@ -98,6 +172,14 @@ pub fn group(entries: &[Entry]) -> Vec<Group> {
         if audio.is_empty() {
             continue;
         }
+        let dropped = drop_duplicates(&mut audio);
+        let dups_for = |g: &[Entry]| -> Vec<Entry> {
+            dropped
+                .iter()
+                .filter(|(asin, _)| g.iter().any(|a| whole_book_asin(a).as_ref() == Some(asin)))
+                .map(|(_, e)| e.clone())
+                .collect()
+        };
         let sidecars: Vec<&Entry> = files
             .iter()
             .copied()
@@ -109,6 +191,7 @@ pub fn group(entries: &[Entry]) -> Vec<Group> {
                 key: dir.to_string(),
                 multi: true,
                 asin,
+                duplicates: dups_for(&audio),
                 audio,
                 sidecars: sidecars.into_iter().cloned().collect(),
             });
@@ -133,6 +216,7 @@ pub fn group(entries: &[Entry]) -> Vec<Group> {
                         .then(|| asin_in(file_name(dir)))
                         .flatten()
                 }),
+                duplicates: dups_for(std::slice::from_ref(&a)),
                 audio: vec![a],
                 sidecars: own,
             });

@@ -19,6 +19,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 const BATCH: usize = 25;
 const WORKERS: usize = 4;
 const THUMB_SIZE: u32 = 500;
+const LONG_FILE_MS: u64 = 45 * 60 * 1000;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ScanProgress {
@@ -103,8 +104,76 @@ fn fill(base: &mut FileTags, extra: &FileTags) {
     list!(authors, narrators, genres);
 }
 
-fn build(root: &Path, g: &Group, reader: &dyn TagReader) -> Built {
+fn squash(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn is_container(e: &crate::walk::Entry) -> bool {
+    matches!(split_ext(file_name(&e.rel)).1.as_str(), "m4b" | "m4a")
+}
+
+fn should_split(g: &Group, tags: &[Option<FileTags>]) -> bool {
+    if !g.multi || g.audio.len() < 2 || g.names_have_asin() {
+        return false;
+    }
+    let distinct = |pick: &dyn Fn(&FileTags) -> Option<String>| -> bool {
+        let mut seen = HashSet::new();
+        tags.iter().all(|t| {
+            t.as_ref()
+                .and_then(pick)
+                .is_some_and(|v| seen.insert(v.to_lowercase()))
+        })
+    };
+    if tags.iter().all(|t| t.as_ref().is_some_and(|t| t.album.is_some())) {
+        return distinct(&|t| t.album.clone());
+    }
+    let long = tags
+        .iter()
+        .all(|t| t.as_ref().is_some_and(|t| t.duration_ms >= LONG_FILE_MS));
+    long && distinct(&|t| t.title.clone())
+}
+
+fn build(root: &Path, g: &Group, reader: &dyn TagReader) -> Vec<Built> {
     let mut issues = Vec::new();
+    let candidate = g.multi && !g.names_have_asin();
+    let has_cover = g.cover().is_some();
+    let mut tags: Vec<Option<FileTags>> = Vec::with_capacity(g.audio.len());
+    for (i, e) in g.audio.iter().enumerate() {
+        let want_cover = if i == 0 {
+            !has_cover || candidate
+        } else {
+            candidate && is_container(e)
+        };
+        match reader.read(&root.join(&e.rel), want_cover) {
+            Ok(t) => tags.push(Some(t)),
+            Err(err) => {
+                issues.push(Issue {
+                    path: e.rel.clone(),
+                    message: err.to_string(),
+                });
+                tags.push(None);
+            }
+        }
+    }
+    for d in &g.duplicates {
+        issues.push(Issue {
+            path: d.rel.clone(),
+            message: "duplicate copy of the same audiobook, ignored".into(),
+        });
+    }
+    let mut out = if should_split(g, &tags) {
+        tags.into_iter()
+            .enumerate()
+            .map(|(i, t)| assemble(root, &g.single(i), vec![t]))
+            .collect()
+    } else {
+        vec![assemble(root, g, tags)]
+    };
+    out[0].issues = issues;
+    out
+}
+
+fn assemble(root: &Path, g: &Group, all_tags: Vec<Option<FileTags>>) -> Built {
     let mut files = Vec::new();
     let mut meta: Option<FileTags> = None;
     let mut embedded_cover: Option<(Vec<u8>, i64)> = None;
@@ -116,19 +185,7 @@ fn build(root: &Path, g: &Group, reader: &dyn TagReader) -> Built {
         .map(|e| split_ext(file_name(&e.rel)).0)
         .collect();
     let prefix = crate::names::common_prefix(&stems);
-    for (i, e) in g.audio.iter().enumerate() {
-        let want_cover = sidecar_cover.is_none() && embedded_cover.is_none();
-        let path = root.join(&e.rel);
-        let tags = match reader.read(&path, want_cover) {
-            Ok(t) => Some(t),
-            Err(err) => {
-                issues.push(Issue {
-                    path: e.rel.clone(),
-                    message: err.to_string(),
-                });
-                None
-            }
-        };
+    for (i, (e, tags)) in g.audio.iter().zip(all_tags).enumerate() {
         let stem = stems[i];
         let track = tags
             .as_ref()
@@ -176,7 +233,7 @@ fn build(root: &Path, g: &Group, reader: &dyn TagReader) -> Built {
     let mut tags = meta.unwrap_or_default();
     let mut chapters = Vec::new();
     let mut had_sidecar = false;
-    if let Some(m) = g.sidecars.iter().find(|s| s.kind == Kind::Meta)
+    if let Some(m) = g.meta()
         && let Ok(bytes) = std::fs::read(root.join(&m.rel))
         && let Some(side) = sidecar::parse(&bytes)
     {
@@ -234,11 +291,11 @@ fn build(root: &Path, g: &Group, reader: &dyn TagReader) -> Built {
     Built {
         book: ScannedBook {
             key: g.key.clone(),
-            title,
-            subtitle: tags.subtitle,
+            title: squash(&title),
+            subtitle: tags.subtitle.as_deref().map(squash),
             authors: tags.authors,
             narrators: tags.narrators,
-            series: tags.series,
+            series: tags.series.as_deref().map(squash),
             series_index: tags.series_index,
             publisher: tags.publisher,
             language: tags.language,
@@ -263,7 +320,7 @@ fn build(root: &Path, g: &Group, reader: &dyn TagReader) -> Built {
         },
         cover,
         chapters,
-        issues,
+        issues: Vec::new(),
     }
 }
 
@@ -311,38 +368,48 @@ pub fn scan(
     };
     let mut unchanged = Vec::new();
     let mut changed: Vec<&Group> = Vec::new();
+    let mut settled: HashSet<&str> = HashSet::new();
     for g in &groups {
-        let mut id = None;
+        let mut ids: Vec<AudiobookId> = Vec::new();
         let mut same = true;
         let mut n = 0;
         for e in g.entries() {
             n += 1;
             match indexed_files.get(&e.rel) {
                 Some(f) if f.size == e.size && f.mtime == e.mtime => {
-                    if *id.get_or_insert(f.audiobook_id) != f.audiobook_id {
-                        same = false;
+                    if !ids.contains(&f.audiobook_id) {
+                        ids.push(f.audiobook_id);
                     }
                 }
-                _ => same = false,
-            }
-            if !same {
-                break;
+                _ => {
+                    same = false;
+                    break;
+                }
             }
         }
-        match id {
-            Some(id)
-                if same && counts.get(&id) == Some(&n) && key_of.get(&id) == Some(&g.key.as_str()) =>
-            {
-                unchanged.push(id)
-            }
-            _ => changed.push(g),
+        let covered: usize = ids.iter().filter_map(|id| counts.get(id)).sum();
+        let keyed = match ids.as_slice() {
+            [id] => key_of.get(id) == Some(&g.key.as_str()),
+            many => !many.is_empty() && g.multi,
+        };
+        if same && covered == n && keyed {
+            summary.audiobooks += ids.len() as u32 - 1;
+            settled.extend(g.entries().chain(g.duplicates.iter()).map(|e| e.rel.as_str()));
+            unchanged.append(&mut ids);
+        } else {
+            changed.push(g);
         }
     }
     summary.unchanged = unchanged.len() as u32;
     store.touch_books(scan_gen, &unchanged)?;
 
     let known_keys: HashSet<&str> = indexed_books.iter().map(|b| b.key.as_str()).collect();
-    let current_keys: HashSet<&str> = groups.iter().map(|g| g.key.as_str()).collect();
+    let current_keys: HashSet<String> = groups
+        .iter()
+        .flat_map(|g| {
+            std::iter::once(g.key.clone()).chain((0..g.audio.len()).map(|i| g.single(i).key))
+        })
+        .collect();
     let mut movable: HashMap<&str, Vec<AudiobookId>> = HashMap::new();
     for b in &indexed_books {
         if let Some(asin) = b.asin.as_deref()
@@ -353,7 +420,11 @@ pub fn scan(
     }
 
     let total = changed.len();
-    let mut issues: Vec<Issue> = Vec::new();
+    let mut issues: Vec<Issue> = store
+        .issues_in(root_id)?
+        .into_iter()
+        .filter(|i| settled.contains(i.path.as_str()))
+        .collect();
     let mut pending: Vec<Built> = Vec::new();
     let flush = |pending: &mut Vec<Built>,
                      movable: &mut HashMap<&str, Vec<AudiobookId>>,
@@ -389,7 +460,7 @@ pub fn scan(
 
     let next = AtomicUsize::new(0);
     let result: Result<()> = std::thread::scope(|scope| {
-        let (tx, rx) = mpsc::channel::<Built>();
+        let (tx, rx) = mpsc::channel::<Vec<Built>>();
         for _ in 0..WORKERS.min(total.max(1)) {
             let tx = tx.clone();
             let (next, changed, dir) = (&next, &changed, &dir);
@@ -408,16 +479,19 @@ pub fn scan(
         }
         drop(tx);
         let mut done = 0;
-        for mut built in rx {
+        for built in rx {
             done += 1;
+            summary.audiobooks += built.len() as u32 - 1;
             progress(ScanProgress {
                 phase: "reading",
                 done,
                 total,
-                current: Some(built.book.title.clone()),
+                current: built.first().map(|b| b.book.title.clone()),
             });
-            issues.append(&mut built.issues);
-            pending.push(built);
+            for mut b in built {
+                issues.append(&mut b.issues);
+                pending.push(b);
+            }
             if pending.len() >= BATCH {
                 flush(&mut pending, &mut movable, &mut summary)?;
             }

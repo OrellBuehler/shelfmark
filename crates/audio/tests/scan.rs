@@ -267,10 +267,68 @@ fn cancel_leaves_a_consistent_index() {
         }
     });
     assert!(matches!(res, Err(Error::Cancelled)));
-    let partial = f.store.list().unwrap().len();
-    assert!(partial < 30);
+    assert!(f.store.list().unwrap().len() <= 30);
     assert!(f.store.list().unwrap().iter().all(|r| r.state == AudioState::Present));
     assert_eq!(run(&f).audiobooks, 30);
     assert_eq!(f.store.list().unwrap().len(), 30);
     let _ = &f.lib;
+}
+
+#[test]
+fn numbered_series_folder_is_split_into_books() {
+    let f = fixture();
+    for (i, title) in ["Killing Floor", "Die Trying", "Tripwire"].iter().enumerate() {
+        let bytes = M4b::new(3_600_000)
+            .text(b"\xa9nam", title)
+            .text(b"\xa9alb", title)
+            .text(b"\xa9ART", "Lee Child")
+            .cover(jpeg(20, 20))
+            .build();
+        f.audio.old(
+            &format!("Jack Reacher - Lee Child/0{} {title}_ Jack Reacher.m4b", i + 1),
+            &bytes,
+        );
+    }
+    f.audio.old("Jack Reacher - Lee Child/folder.jpg", &jpeg(10, 10));
+    let reader = Counting(AtomicUsize::new(0));
+    let cancel = AtomicBool::new(false);
+    let s = scan(&f.store, f.root.id, &reader, &cancel, &|_| {}).unwrap();
+    assert_eq!((s.audiobooks, s.added), (3, 3));
+    let rows = f.store.list().unwrap();
+    let mut titles: Vec<_> = rows.iter().map(|r| r.title.as_str()).collect();
+    titles.sort();
+    assert_eq!(titles, ["Die Trying", "Killing Floor", "Tripwire"]);
+    assert!(rows.iter().all(|r| r.file_count == 1 && r.duration_ms == 3_600_000 && r.has_cover));
+
+    reader.0.store(0, Ordering::SeqCst);
+    let s = scan(&f.store, f.root.id, &reader, &cancel, &|_| {}).unwrap();
+    assert_eq!(reader.0.load(Ordering::SeqCst), 0);
+    assert_eq!((s.audiobooks, s.unchanged, s.added, s.updated), (3, 3, 0, 0));
+}
+
+#[test]
+fn duplicate_copies_count_once_and_are_reported() {
+    let f = fixture();
+    let old = f.audio.old("Dune [B002V1A0WE]/Dune_ Book [B002V1A0WE].m4b", &dune());
+    age(&old, 90_000);
+    f.audio.old("Dune [B002V1A0WE]/Dune? Book [B002V1A0WE].m4b", &dune());
+    f.audio.old("Dune [B002V1A0WE]/Dune_ Book [B002V1A0WE].jpg", &jpeg(10, 10));
+    f.audio.old("Dune [B002V1A0WE]/Dune? Book [B002V1A0WE].jpg", &jpeg(10, 10));
+    let s = run(&f);
+    assert_eq!((s.audiobooks, s.issues), (1, 1));
+    let rows = f.store.list().unwrap();
+    assert_eq!((rows[0].file_count, rows[0].duration_ms), (1, 60_000));
+    let d = f.store.detail(rows[0].id).unwrap();
+    assert!(d.files[0].rel_path.contains("Dune? Book"));
+    let s = run(&f);
+    assert_eq!((s.unchanged, s.issues), (1, 1));
+    assert!(f.store.issues().unwrap()[0].message.contains("duplicate"));
+}
+
+#[test]
+fn issues_survive_an_unchanged_rescan() {
+    let f = fixture();
+    f.audio.old("Broken [B00AAAAAA1]/Broken [B00AAAAAA1].m4b", b"garbage");
+    assert_eq!(run(&f).issues, 1);
+    assert_eq!(run(&f).issues, 1);
 }

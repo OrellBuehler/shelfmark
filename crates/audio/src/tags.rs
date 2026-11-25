@@ -58,7 +58,7 @@ const NAME_SUFFIXES: &[&str] = &[
 
 pub fn split_names(raw: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    for part in raw.split([';', ',', '\u{0}']) {
+    for part in raw.split([';', ',', '/', '\u{0}']) {
         let p = part.trim();
         if p.is_empty() {
             continue;
