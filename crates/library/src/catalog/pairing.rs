@@ -6,6 +6,7 @@ use crate::record::Record;
 use crate::text;
 
 pub const AUTO_THRESHOLD: f32 = 0.85;
+const WEAK_AUTO: f32 = 0.86;
 const SUGGEST_THRESHOLD: f32 = 0.5;
 
 const NOISE: &[&str] = &[
@@ -73,6 +74,8 @@ pub struct TitleKeys {
     pub full: String,
     pub base: Option<String>,
     pub tail: Option<String>,
+    base_words: usize,
+    tail_numbers: Vec<String>,
 }
 
 pub fn title_keys(title: &str) -> TitleKeys {
@@ -83,6 +86,11 @@ pub fn title_keys(title: &str) -> TitleKeys {
         full: key(&clean),
         base: parts.and_then(|(b, _)| part(b)),
         tail: parts.and_then(|(_, t)| part(t)),
+        base_words: parts.map_or(0, |(b, _)| words(b).len()),
+        tail_numbers: words(title)
+            .into_iter()
+            .filter(|w| w.chars().all(|c| c.is_ascii_digit()))
+            .collect(),
     }
 }
 
@@ -235,12 +243,42 @@ impl<'a> Index<'a> {
                     || *k == e.keys.full
                     || e.keys.base.as_deref() == Some(keys.full.as_str())
                     || e.keys.tail.as_deref() == Some(keys.full.as_str());
-                if !one_full {
-                    continue;
-                }
                 let known = !authors.is_empty() && !e.authors.is_empty();
                 let overlap = authors_overlap(&authors, &e.authors);
                 if known && !overlap {
+                    continue;
+                }
+                if !one_full {
+                    if keys.base.as_ref() != Some(k) || e.keys.base.as_ref() != Some(k) {
+                        continue;
+                    }
+                    let numbers_clash = !keys.tail_numbers.is_empty()
+                        && !e.keys.tail_numbers.is_empty()
+                        && !keys.tail_numbers.iter().any(|n| e.keys.tail_numbers.contains(n));
+                    let series_clash = matches!(
+                        (a.series_index, a.series.as_ref(), e.rec.series.as_ref()),
+                        (Some(ai), Some(_), Some(_)) if (ai - e.rec.series_index).abs() > f64::EPSILON
+                    );
+                    if numbers_clash || series_clash {
+                        continue;
+                    }
+                    let unique = self.by_key[k]
+                        .iter()
+                        .filter(|&&j| {
+                            let other = &self.books[j];
+                            other.keys.base.as_ref() == Some(k)
+                                && authors_overlap(&authors, &other.authors)
+                        })
+                        .count()
+                        == 1;
+                    bump(
+                        i,
+                        if overlap && unique && keys.base_words >= 2 {
+                            WEAK_AUTO
+                        } else {
+                            0.7
+                        },
+                    );
                     continue;
                 }
                 if !both_full
@@ -288,6 +326,7 @@ impl<'a> Index<'a> {
     ) -> HashMap<AudiobookId, (BookId, bool)> {
         let mut out: HashMap<AudiobookId, (BookId, bool)> = HashMap::new();
         let mut rejected: HashSet<(AudiobookId, BookId)> = HashSet::new();
+        let mut weak: Vec<(AudiobookId, BookId)> = Vec::new();
         for l in links {
             let Some(book) = self.resolve(l) else { continue };
             match l.state {
@@ -319,6 +358,18 @@ impl<'a> Index<'a> {
                 .any(|(b, s)| *s >= score && !self.same_work(best, *b));
             if !rival {
                 out.insert(a.id, (best, false));
+                if score <= WEAK_AUTO {
+                    weak.push((a.id, best));
+                }
+            }
+        }
+        let mut per_book: HashMap<BookId, usize> = HashMap::new();
+        for (book, _) in out.values() {
+            *per_book.entry(*book).or_default() += 1;
+        }
+        for (audiobook, book) in weak {
+            if per_book[&book] > 1 {
+                out.remove(&audiobook);
             }
         }
         out
@@ -417,6 +468,29 @@ mod tests {
         assert!(paired(&recs, &a, &[]).is_empty());
         let index = Index::new(&recs);
         assert_eq!(index.candidates(&a[3]), [(1, 0.8)]);
+    }
+
+    #[test]
+    fn shared_main_title_pairs_only_when_unambiguous() {
+        let recs = [
+            rec(1, "Killing Floor: (Jack Reacher 1): Now a Hit Prime Video Series", &["Lee Child"]),
+            rec(2, "Bad Luck and Trouble: Coming Soon to Prime Video", &["Lee Child"]),
+            rec(3, "Mistborn: The Final Empire", &["Brandon Sanderson"]),
+            rec(4, "Mistborn: The Hero of Ages", &["Brandon Sanderson"]),
+            rec(5, "Jack Reacher: Book 3", &["Lee Child"]),
+            rec(6, "Foundation: A Novel", &["Isaac Asimov"]),
+        ];
+        let a = [
+            audio(10, "Killing Floor: Jack Reacher, Book 1", &["Lee Child"]),
+            audio(11, "Bad Luck and Trouble: Jack Reacher, Book 11", &["Lee Child"]),
+            audio(12, "Mistborn: The Well of Ascension", &["Brandon Sanderson"]),
+            audio(13, "Jack Reacher: Book 4", &["Lee Child"]),
+            audio(14, "Foundation: Book One", &["Isaac Asimov"]),
+        ];
+        assert_eq!(paired(&recs, &a, &[]), [(10, 1, false), (11, 2, false)]);
+        let index = Index::new(&recs);
+        assert_eq!(index.candidates(&a[4]), [(6, 0.7)]);
+        assert!(index.candidates(&a[3]).is_empty());
     }
 
     #[test]
