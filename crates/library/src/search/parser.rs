@@ -32,6 +32,12 @@ pub const LOCATIONS: &[&str] = &[
     "date",
     "title",
     "uuid",
+    "narrators",
+    "narrator",
+    "audiobook",
+    "audio",
+    "ebook",
+    "duration",
 ];
 
 #[derive(Clone, Debug, PartialEq)]

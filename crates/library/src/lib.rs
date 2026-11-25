@@ -1,3 +1,4 @@
+mod catalog;
 mod categories;
 mod dates;
 mod db;
@@ -17,8 +18,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use shelfmark_model::{
-    Book, BookId, BookPatch, BookSummary, BulkPatch, Category, ListQuery, Metadata, SavedSearch,
-    SortField,
+    AudioIndex, AudiobookId, Book, BookId, BookPatch, BookSummary, BulkPatch, Category, ListQuery,
+    Metadata, SavedSearch, Scope, SortField,
 };
 
 pub use error::{Error, Result};
@@ -35,10 +36,17 @@ struct Cache {
     comments: Option<CommentMap>,
 }
 
+struct CatalogCache {
+    recs: usize,
+    generation: u64,
+    built: Arc<catalog::Built>,
+}
+
 pub struct Library {
     dir: PathBuf,
     conn: Mutex<Connection>,
     cache: Mutex<Option<Cache>>,
+    catalog: Mutex<Option<CatalogCache>>,
     rules: text::PathRules,
 }
 
@@ -156,10 +164,15 @@ fn sort_records(recs: Vec<&Record>, by: SortField, descending: bool) -> Vec<&Rec
                     text: String::new(),
                     num: f64::from(r.rating),
                 },
-                SortField::Size | SortField::Duration => SortKey {
+                SortField::Size => SortKey {
                     missing: false,
                     text: String::new(),
                     num: r.size as f64,
+                },
+                SortField::Duration => SortKey {
+                    missing: r.audio.is_none(),
+                    text: String::new(),
+                    num: r.audio.as_ref().map_or(0.0, |a| a.duration_ms as f64),
                 },
                 SortField::Publisher => SortKey {
                     missing: r.publisher.is_none(),
@@ -202,6 +215,7 @@ impl Library {
             dir: dir.to_path_buf(),
             conn: Mutex::new(conn),
             cache: Mutex::new(None),
+            catalog: Mutex::new(None),
             rules: text::PathRules::default(),
         })
     }
@@ -223,6 +237,7 @@ impl Library {
             dir: dir.to_path_buf(),
             conn: Mutex::new(conn),
             cache: Mutex::new(None),
+            catalog: Mutex::new(None),
             rules: text::PathRules::default(),
         })
     }
@@ -332,6 +347,129 @@ impl Library {
             q.descending,
         );
         Ok(sorted.into_iter().map(Record::summary).collect())
+    }
+
+    fn built(&self, recs: &Arc<Vec<Record>>, audio: &dyn AudioIndex) -> Result<Arc<catalog::Built>> {
+        let key = Arc::as_ptr(recs) as usize;
+        let generation = audio.generation();
+        let mut guard = self.catalog.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(c) = guard.as_ref()
+            && c.recs == key
+            && c.generation == generation
+        {
+            return Ok(c.built.clone());
+        }
+        let rows = audio.audiobooks().map_err(Error::Audio)?;
+        let links = audio.links().map_err(Error::Audio)?;
+        let built = Arc::new(catalog::build(recs, &rows, &links));
+        *guard = Some(CatalogCache {
+            recs: key,
+            generation,
+            built: built.clone(),
+        });
+        Ok(built)
+    }
+
+    fn entries(
+        &self,
+        conn: &Connection,
+        scope: Scope,
+        search: Option<&str>,
+        audio: &dyn AudioIndex,
+        then: &mut dyn FnMut(Vec<&Record>),
+    ) -> Result<()> {
+        let compiled = match search.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(s) => Some(compile_search(conn, s)?),
+            None => None,
+        };
+        let need_comments = compiled.as_ref().is_some_and(|c| c.needs_comments());
+        let (recs, comments) = self.snapshot(conn, need_comments)?;
+        let built = self.built(&recs, audio)?;
+        let ebooks = recs.iter().map(|r| built.overlay.get(&r.id).unwrap_or(r));
+        let all: Vec<&Record> = match scope {
+            Scope::Ebooks => ebooks.collect(),
+            Scope::Audiobooks => built.audio.iter().collect(),
+            Scope::All => ebooks
+                .chain(built.unpaired.iter().map(|&i| &built.audio[i]))
+                .collect(),
+        };
+        let hits = match &compiled {
+            None => all,
+            Some(c) => all
+                .into_iter()
+                .filter(|r| {
+                    let text = if r.is_audio_entry() {
+                        r.comments.as_deref()
+                    } else {
+                        comments
+                            .as_ref()
+                            .and_then(|m| m.get(&r.id))
+                            .map(String::as_str)
+                    };
+                    c.matches(r, text)
+                })
+                .collect(),
+        };
+        then(hits);
+        Ok(())
+    }
+
+    pub fn list_entries(&self, q: &ListQuery, audio: &dyn AudioIndex) -> Result<Vec<BookSummary>> {
+        let conn = self.conn();
+        let mut out = Vec::new();
+        self.entries(&conn, q.scope, nonblank(&q.search), audio, &mut |hits| {
+            out = sort_records(hits, q.sort_by, q.descending)
+                .into_iter()
+                .map(Record::summary)
+                .collect();
+        })?;
+        Ok(out)
+    }
+
+    pub fn categories_entries(
+        &self,
+        scope: Scope,
+        search: Option<&str>,
+        audio: &dyn AudioIndex,
+    ) -> Result<Vec<Category>> {
+        let conn = self.conn();
+        let mut out = Vec::new();
+        let search = search.map(str::to_string);
+        self.entries(&conn, scope, nonblank(&search), audio, &mut |hits| {
+            out = categories::from_records(&hits);
+        })?;
+        Ok(out)
+    }
+
+    pub fn audio_pairs(&self, audio: &dyn AudioIndex) -> Result<HashMap<AudiobookId, (BookId, bool)>> {
+        let conn = self.conn();
+        let (recs, _) = self.snapshot(&conn, false)?;
+        Ok(self.built(&recs, audio)?.pairs.clone())
+    }
+
+    pub fn audio_candidates(
+        &self,
+        audiobook: AudiobookId,
+        audio: &dyn AudioIndex,
+    ) -> Result<Vec<(BookSummary, f32)>> {
+        let conn = self.conn();
+        let (recs, _) = self.snapshot(&conn, false)?;
+        let rows = audio.audiobooks().map_err(Error::Audio)?;
+        let Some(row) = rows.iter().find(|r| r.id == audiobook) else {
+            return Ok(Vec::new());
+        };
+        let index = catalog::pairing::Index::new(&recs);
+        let by_id: HashMap<BookId, &Record> = recs.iter().map(|r| (r.id, r)).collect();
+        Ok(index
+            .candidates(row)
+            .into_iter()
+            .filter_map(|(id, score)| by_id.get(&id).map(|r| (r.summary(), score)))
+            .take(8)
+            .collect())
+    }
+
+    pub fn book_uuid(&self, id: BookId) -> Result<String> {
+        Ok(Self::load_one(&self.conn(), id)?.uuid)
     }
 
     fn load_one(conn: &Connection, id: BookId) -> Result<Record> {

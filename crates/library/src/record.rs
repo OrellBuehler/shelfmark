@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, Row, params_from_iter};
-use shelfmark_model::{Book, BookSummary, FormatFile, Metadata};
+use shelfmark_model::{
+    AudioBrief, AudioState, AudiobookId, Book, BookSummary, EntryKind, FormatFile, Metadata,
+};
 
 use crate::dates;
 use crate::db;
@@ -43,6 +45,36 @@ pub struct Record {
     pub uuid: String,
     pub comments: Option<String>,
     pub pages: Option<i64>,
+    pub audio: Option<AudioFacet>,
+    pub ebook_paired: Option<i64>,
+}
+
+#[doc(hidden)]
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AudioFacet {
+    pub ids: Vec<AudiobookId>,
+    pub narrators: Vec<String>,
+    pub formats: Vec<String>,
+    pub duration_ms: u64,
+    pub size: u64,
+    pub file_count: u32,
+    pub asin: Option<String>,
+    pub state: AudioState,
+}
+
+impl AudioFacet {
+    fn brief(&self) -> AudioBrief {
+        AudioBrief {
+            narrators: self.narrators.clone(),
+            duration_ms: self.duration_ms,
+            format: self.formats.first().cloned().unwrap_or_default(),
+            file_count: self.file_count,
+            size: self.size,
+            asin: self.asin.clone(),
+            state: self.state,
+            count: self.ids.len() as u32,
+        }
+    }
 }
 
 fn each(
@@ -304,8 +336,19 @@ impl Record {
                 .last_modified
                 .as_ref()
                 .map_or_else(|| self.last_modified_raw.replacen(' ', "T", 1), dates::iso),
-            ..Default::default()
+            kind: match (&self.audio, self.is_audio_entry(), self.ebook_paired) {
+                (Some(_), true, None) => EntryKind::Audiobook,
+                (Some(_), _, _) => EntryKind::Both,
+                (None, _, _) => EntryKind::Ebook,
+            },
+            audiobook_id: self.audio.as_ref().and_then(|a| a.ids.first().copied()),
+            audio: self.audio.as_ref().map(AudioFacet::brief),
+            paired_book_id: self.ebook_paired,
         }
+    }
+
+    pub fn is_audio_entry(&self) -> bool {
+        self.id < 0
     }
 
     pub fn book(&self) -> Book {

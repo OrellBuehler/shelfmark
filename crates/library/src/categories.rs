@@ -4,6 +4,7 @@ use rusqlite::Connection;
 use shelfmark_model::{Category, CategoryItem};
 
 use crate::error::Result;
+use crate::record::Record;
 use crate::langs;
 use crate::text;
 
@@ -242,4 +243,151 @@ pub fn build(conn: &Connection, visible: Option<&HashSet<i64>>) -> Result<Vec<Ca
             items: finish(identifiers),
         },
     ])
+}
+
+fn tally(map: &mut HashMap<String, Acc>, key: String, make: impl FnOnce() -> Acc) {
+    map.entry(key).or_insert_with(make).count += 1;
+}
+
+fn plain(field: &str, name: &str, sort: String) -> Acc {
+    Acc {
+        id: None,
+        sort,
+        search: equals_search(field, name),
+        name: name.to_string(),
+        count: 0,
+    }
+}
+
+pub fn from_records(recs: &[&Record]) -> Vec<Category> {
+    let mut authors = HashMap::new();
+    let mut series = HashMap::new();
+    let mut tags = HashMap::new();
+    let mut publisher = HashMap::new();
+    let mut languages = HashMap::new();
+    let mut formats = HashMap::new();
+    let mut identifiers = HashMap::new();
+    let mut narrators = HashMap::new();
+    let mut stars: HashMap<u8, u32> = HashMap::new();
+    let (mut with_audio, mut with_ebook, mut audio_only, mut ebook_only) = (0u32, 0u32, 0u32, 0u32);
+
+    for r in recs {
+        for a in &r.authors {
+            tally(&mut authors, a.clone(), || {
+                plain("authors", a, text::author_to_author_sort(a))
+            });
+        }
+        if let Some(s) = &r.series {
+            tally(&mut series, s.clone(), || {
+                plain(
+                    "series",
+                    s,
+                    text::title_sort(s, r.languages.first().map(String::as_str)),
+                )
+            });
+        }
+        for t in &r.tags {
+            tally(&mut tags, t.clone(), || plain("tags", t, t.clone()));
+        }
+        if let Some(p) = &r.publisher {
+            tally(&mut publisher, p.clone(), || plain("publisher", p, p.clone()));
+        }
+        for code in &r.languages {
+            tally(&mut languages, code.clone(), || {
+                let name = langs::name(code)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| code.clone());
+                Acc {
+                    id: None,
+                    sort: name.clone(),
+                    name,
+                    count: 0,
+                    search: equals_search("languages", code),
+                }
+            });
+        }
+        let audio_formats = r.audio.iter().flat_map(|a| a.formats.iter());
+        for f in r.formats.iter().map(|f| &f.format).chain(audio_formats) {
+            tally(&mut formats, f.clone(), || plain("formats", f, f.clone()));
+        }
+        if r.rating > 1 {
+            *stars.entry(r.rating / 2).or_default() += 1;
+        }
+        for (typ, _) in &r.identifiers {
+            tally(&mut identifiers, typ.to_lowercase(), || Acc {
+                id: None,
+                sort: typ.clone(),
+                search: format!("identifiers:\"={}:\"", quote(typ)),
+                name: typ.clone(),
+                count: 0,
+            });
+        }
+        if let Some(a) = &r.audio {
+            for n in &a.narrators {
+                tally(&mut narrators, n.clone(), || {
+                    plain("narrators", n, text::author_to_author_sort(n))
+                });
+            }
+        }
+        let has_ebook = !r.is_audio_entry() || r.ebook_paired.is_some();
+        match (r.audio.is_some(), has_ebook) {
+            (true, true) => {
+                with_audio += 1;
+                with_ebook += 1;
+            }
+            (true, false) => {
+                with_audio += 1;
+                audio_only += 1;
+            }
+            (false, _) => {
+                with_ebook += 1;
+                ebook_only += 1;
+            }
+        }
+    }
+
+    let mut ratings: Vec<CategoryItem> = stars
+        .iter()
+        .map(|(s, n)| CategoryItem {
+            id: None,
+            name: s.to_string(),
+            count: *n,
+            search: format!("rating:{s}"),
+        })
+        .collect();
+    ratings.sort_by(|a, b| b.name.cmp(&a.name));
+
+    let audio: Vec<CategoryItem> = [
+        ("Has audiobook", with_audio, "audio:true"),
+        ("Has ebook", with_ebook, "ebook:true"),
+        ("Both formats", with_audio + with_ebook - (recs.len() as u32), "audio:true and ebook:true"),
+        ("No audiobook", ebook_only, "audio:false"),
+        ("No ebook", audio_only, "ebook:false"),
+    ]
+    .into_iter()
+    .filter(|(_, n, _)| *n > 0 && (*n as usize) < recs.len())
+    .map(|(name, count, search)| CategoryItem {
+        id: None,
+        name: name.to_string(),
+        count,
+        search: search.to_string(),
+    })
+    .collect();
+
+    let cat = |key: &str, items| Category {
+        key: key.into(),
+        items,
+    };
+    vec![
+        cat("audio", audio),
+        cat("authors", finish(authors)),
+        cat("narrators", finish(narrators)),
+        cat("series", finish(series)),
+        cat("tags", finish(tags)),
+        cat("publisher", finish(publisher)),
+        cat("languages", finish(languages)),
+        cat("formats", finish(formats)),
+        cat("rating", ratings),
+        cat("identifiers", finish(identifiers)),
+    ]
 }

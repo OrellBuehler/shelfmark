@@ -36,6 +36,10 @@ enum Field {
     Timestamp,
     Pubdate,
     LastModified,
+    Narrators,
+    Audio,
+    Ebook,
+    Duration,
 }
 
 const ALL_FIELDS: &[Field] = &[
@@ -50,6 +54,7 @@ const ALL_FIELDS: &[Field] = &[
     Field::Languages,
     Field::Identifiers,
     Field::TitleSort,
+    Field::Narrators,
     Field::Rating,
 ];
 
@@ -77,6 +82,10 @@ fn field_for(location: &str) -> Option<Field> {
         "date" => Field::Timestamp,
         "pubdate" => Field::Pubdate,
         "last_modified" => Field::LastModified,
+        "narrators" | "narrator" => Field::Narrators,
+        "audio" | "audiobook" => Field::Audio,
+        "ebook" => Field::Ebook,
+        "duration" => Field::Duration,
         _ => return None,
     })
 }
@@ -211,6 +220,19 @@ impl NumQuery {
             op,
             value: base * mult,
         })
+    }
+
+    fn parse_plain(query: &str) -> Result<Self> {
+        if query == "true" || query == "false" {
+            return Ok(NumQuery::Present(query == "true"));
+        }
+        let (op, q) = date::split_op(query);
+        let value = q
+            .trim()
+            .trim_end_matches('h')
+            .parse::<f64>()
+            .map_err(|_| Error::Search(format!("non-numeric value in query: {query}")))?;
+        Ok(NumQuery::Cmp { op, value })
     }
 
     fn matches(&self, v: Option<f64>) -> bool {
@@ -472,6 +494,14 @@ fn leaf(loc: &str, query: &str, needs: &mut bool) -> Result<Expr> {
             field,
             q: NumQuery::parse(&lowered, false)?,
         },
+        Field::Duration => Leaf::Num {
+            field,
+            q: NumQuery::parse_plain(&lowered)?,
+        },
+        Field::Audio | Field::Ebook => Leaf::HasValue {
+            field,
+            want: !matches!(lowered.trim(), "false" | "no" | "0"),
+        },
         Field::Identifiers => {
             let q = if loc == "isbn" {
                 format!("=isbn:{query}")
@@ -532,9 +562,18 @@ fn any_value(c: &Ctx, f: Field, mut pred: impl FnMut(&str) -> bool) -> bool {
         }),
         Field::Publisher => r.publisher.as_deref().is_some_and(pred),
         Field::Comments => c.comments.is_some_and(pred),
-        Field::Formats => r.formats.iter().any(|x| pred(&x.format)),
+        Field::Formats => {
+            r.formats.iter().any(|x| pred(&x.format))
+                || r.audio
+                    .as_ref()
+                    .is_some_and(|a| a.formats.iter().any(|f| pred(f)))
+        }
         Field::Languages => r.languages.iter().any(|a| pred(a)),
         Field::Uuid => pred(&r.uuid),
+        Field::Narrators => r
+            .audio
+            .as_ref()
+            .is_some_and(|a| a.narrators.iter().any(|n| pred(n))),
         _ => false,
     }
 }
@@ -550,7 +589,10 @@ fn has_value(c: &Ctx, f: Field) -> bool {
         Field::Series | Field::SeriesSort => r.series.is_some(),
         Field::Publisher => r.publisher.is_some(),
         Field::Comments => c.comments.is_some_and(|c| !c.trim().is_empty()),
-        Field::Formats => !r.formats.is_empty(),
+        Field::Formats => !r.formats.is_empty() || r.audio.is_some(),
+        Field::Narrators => r.audio.as_ref().is_some_and(|a| !a.narrators.is_empty()),
+        Field::Audio => r.audio.is_some(),
+        Field::Ebook => !r.is_audio_entry() || r.ebook_paired.is_some(),
         Field::Languages => !r.languages.is_empty(),
         Field::Identifiers => !r.identifiers.is_empty(),
         Field::Uuid => !r.uuid.is_empty(),
@@ -566,7 +608,11 @@ fn num_value(r: &Record, f: Field) -> Option<f64> {
         Field::Id => Some(r.id as f64),
         Field::Pages => r.pages.map(|p| p as f64),
         Field::SeriesIndex => Some(r.series_index),
-        Field::Size => (!r.formats.is_empty()).then_some(r.size as f64),
+        Field::Size => (!r.formats.is_empty() || r.is_audio_entry()).then_some(r.size as f64),
+        Field::Duration => r
+            .audio
+            .as_ref()
+            .map(|a| a.duration_ms as f64 / 3_600_000.0),
         _ => None,
     }
 }

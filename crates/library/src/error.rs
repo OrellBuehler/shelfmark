@@ -28,6 +28,8 @@ pub enum Error {
     FileMissing(PathBuf),
     #[error("invalid search: {0}")]
     Search(String),
+    #[error("audiobook index error: {0}")]
+    Audio(String),
     #[error("invalid {field}: {value}")]
     Invalid { field: &'static str, value: String },
 }
