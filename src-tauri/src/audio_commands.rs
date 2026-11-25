@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use shelfmark_audio::transfer::{self, Dest, Mode, TransferPlan, Verify};
 use shelfmark_audio::{AudioStore, Issue, LoftyReader, NewRoot, RootPatch, ScanSummary, scan};
 use shelfmark_model::*;
 use tauri::ipc::Channel;
@@ -308,4 +309,68 @@ pub fn audio_open(app: AppHandle, state: State<AppState>, id: AudiobookId) -> R<
     app.opener()
         .open_path(target.to_string_lossy(), None::<&str>)
         .map_err(e)
+}
+
+fn destination(root_id: Option<i64>, folder: Option<String>) -> R<Dest> {
+    match (root_id, folder) {
+        (Some(id), _) => Ok(Dest::Root(id)),
+        (None, Some(f)) if !f.trim().is_empty() => Ok(Dest::Folder(PathBuf::from(f))),
+        _ => Err("No destination was chosen".into()),
+    }
+}
+
+#[tauri::command(async)]
+pub fn audio_transfer_plan(
+    state: State<AppState>,
+    ids: Vec<AudiobookId>,
+    dest_root_id: Option<i64>,
+    dest_folder: Option<String>,
+) -> R<TransferPlan> {
+    let open = state.current()?;
+    transfer::plan(&open.audio, &ids, &destination(dest_root_id, dest_folder)?).map_err(e)
+}
+
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+pub fn audio_transfer(
+    app: AppHandle,
+    state: State<AppState>,
+    ids: Vec<AudiobookId>,
+    dest_root_id: Option<i64>,
+    dest_folder: Option<String>,
+    mode: Mode,
+    verify: Verify,
+    on_event: Channel<JobEvent>,
+) -> R<u64> {
+    let open: Arc<OpenLibrary> = state.current()?;
+    let plan = transfer::plan(&open.audio, &ids, &destination(dest_root_id, dest_folder)?)
+        .map_err(e)?;
+    let (job, cancel) = state.jobs.start();
+    std::thread::spawn(move || {
+        let reporter = Reporter::new(on_event);
+        let result = transfer::run(&open.audio, &plan, mode, verify, &cancel, &|p| {
+            reporter.progress("copying", p.done_bytes, p.total_bytes, p.current);
+        });
+        let event = match result {
+            Ok(summary) => {
+                if mode == Mode::Copy
+                    && summary.done > 0
+                    && let Some(root) = dest_root_id
+                {
+                    let _ = scan(&open.audio, root, &LoftyReader, &cancel, &|p| {
+                        reporter.progress(p.phase, p.done as u64, p.total as u64, p.current);
+                    });
+                }
+                JobEvent::Done {
+                    result: serde_json::to_value(&summary).unwrap_or_default(),
+                }
+            }
+            Err(err) => JobEvent::Failed {
+                message: err.to_string(),
+            },
+        };
+        reporter.end(event);
+        app.state::<AppState>().jobs.finish(job);
+    });
+    Ok(job)
 }

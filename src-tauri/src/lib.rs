@@ -70,6 +70,8 @@ pub fn run() {
             audio_commands::audio_reset_link,
             audio_commands::audio_show_in_folder,
             audio_commands::audio_open,
+            audio_commands::audio_transfer_plan,
+            audio_commands::audio_transfer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
