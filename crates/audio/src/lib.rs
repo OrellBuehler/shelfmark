@@ -1,3 +1,4 @@
+pub mod duplicates;
 mod error;
 mod group;
 mod layout;

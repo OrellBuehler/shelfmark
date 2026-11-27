@@ -250,6 +250,8 @@ fn links_and_cascades() {
             &[Issue {
                 path: "x.m4b".into(),
                 message: "bad".into(),
+                kind: "error".into(),
+                ..Default::default()
             }],
         )
         .unwrap();

@@ -57,7 +57,9 @@
 		<Cloud class="size-4 text-sky-600 dark:text-sky-400" />
 		<h3 class="text-sm font-semibold">Audible</h3>
 		{#if audible.connected}
-			<span class="ml-auto text-xs text-muted-foreground tabular-nums">{status.titles.toLocaleString()} not downloaded</span>
+			<span class="ml-auto text-xs text-muted-foreground tabular-nums">
+				{plural(status.titles, "title")} in your Audible library · {status.notDownloaded.toLocaleString()} not downloaded
+			</span>
 		{/if}
 	</div>
 
@@ -79,6 +81,11 @@
 			<Button size="sm" variant="outline" onclick={chooseFile}>Choose file…</Button>
 		</div>
 	{:else}
+		{#if status.imported}
+			<p class="text-[13px] text-muted-foreground">
+				The sign-in is stored in Shelfmark's own settings, so syncing works without Libation. Don't remove the accounts inside Libation before uninstalling it: that can sign this copy out too.
+			</p>
+		{/if}
 		{#if status.source}
 			<p class="truncate font-mono text-[11px] text-muted-foreground" title={status.source}>{status.source}</p>
 		{/if}
@@ -131,6 +138,17 @@
 			<Button size="sm" variant="outline" disabled={!!audible.job || !!status.error} onclick={() => audible.sync()}>
 				<RefreshCw />Sync now
 			</Button>
+			{#if status.detected && status.detected !== status.source}
+				<Button
+					size="sm"
+					variant="ghost"
+					disabled={!!audible.job}
+					title={`Copy the sign-in again from ${status.detected}`}
+					onclick={() => audible.connect()}
+				>
+					Import again from Libation
+				</Button>
+			{/if}
 			<Button size="sm" variant="ghost" disabled={!!audible.job} onclick={() => (confirming = !confirming)}>Disconnect</Button>
 			<span class="ml-auto text-xs text-muted-foreground">
 				{status.lastSync ? `Last synced ${formatDateTime(status.lastSync)}` : "Not synced yet"}
@@ -140,7 +158,7 @@
 		{#if confirming}
 			<div class="flex flex-wrap items-center gap-2 rounded-md bg-destructive/10 p-2.5 text-[13px]">
 				<span class="min-w-0 flex-1">
-					Disconnect from Audible? Only the {plural(status.titles, "not-downloaded title")} are removed from Shelfmark. Your downloaded audiobooks, your files and Libation are not touched.
+					Disconnect from Audible? The {plural(status.notDownloaded, "not-downloaded title")} are removed from Shelfmark. Your downloaded audiobooks and your files are not touched, and the copied sign-in stays on this computer so you can reconnect.
 				</span>
 				<Button size="xs" variant="ghost" onclick={() => (confirming = false)}>Cancel</Button>
 				<Button size="xs" variant="destructive" onclick={disconnect}>Disconnect</Button>

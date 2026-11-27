@@ -332,3 +332,38 @@ fn issues_survive_an_unchanged_rescan() {
     assert_eq!(run(&f).issues, 1);
     assert_eq!(run(&f).issues, 1);
 }
+
+#[test]
+fn a_chosen_duplicate_copy_is_used_and_hidden_issues_stay_hidden() {
+    use shelfmark_audio::duplicates;
+
+    let f = fixture();
+    let older = "Dune [B002V1A0WE]/Dune_ Book [B002V1A0WE].m4b";
+    let newer = "Dune [B002V1A0WE]/Dune - Book [B002V1A0WE].m4b";
+    age(&f.audio.old(older, &dune()), 90_000);
+    f.audio.old(newer, &dune());
+    run(&f);
+    let id = f.store.list().unwrap()[0].id;
+    let issue = f.store.issues().unwrap().remove(0);
+    assert_eq!((issue.path.as_str(), issue.kind.as_str()), (older, "duplicate"));
+
+    let copies = duplicates::copies(&f.store, f.root.id, older, &LoftyReader).unwrap();
+    assert_eq!(copies.len(), 2);
+    assert_eq!(copies.iter().filter(|c| c.in_library).count(), 1);
+    assert!(copies.iter().all(|c| c.title.as_deref() == Some("Dune") && c.has_cover));
+    assert!(duplicates::resolve(&f.store, f.root.id, "../x.m4b").is_err());
+
+    let all = duplicates::siblings(&f.store, f.root.id, older).unwrap();
+    f.store.set_pick(f.root.id, older, &all).unwrap();
+    let s = run(&f);
+    assert_eq!((s.audiobooks, s.added, s.missing), (1, 0, 0));
+    let rows = f.store.list().unwrap();
+    assert_eq!((rows.len(), rows[0].id), (1, id));
+    assert_eq!(f.store.detail(id).unwrap().files[0].rel_path, older);
+    assert_eq!(f.store.issues().unwrap()[0].path, newer);
+
+    f.store.ignore_issues(f.root.id, &all).unwrap();
+    assert!(f.store.issues().unwrap().is_empty());
+    run(&f);
+    assert!(f.store.issues().unwrap().is_empty());
+}

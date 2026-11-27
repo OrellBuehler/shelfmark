@@ -5,6 +5,7 @@ import type {
 	AudibleStatus,
 	AudibleSyncResult,
 	AudioBrief,
+	AudioCopy,
 	AudioIssue,
 	AudioRoot,
 	AudiobookFile,
@@ -388,15 +389,64 @@ function newAudio(books: MockBook[], scanned: boolean): AudioMock {
 			a.rootId = 1;
 			if (a.willBeMissing) a.state = "missing";
 		}
-		au.issues = sampleIssues("/home/reader/Audiobooks");
+		au.issues = sampleIssues(1);
 	}
 	return au;
 }
 
-function sampleIssues(root: string): AudioIssue[] {
+function sampleIssues(rootId: number): AudioIssue[] {
 	return [
-		{ path: `${root}/Unknown Author/Broken Download/part 3.mp3`, message: "Could not read tags: unexpected end of file" },
-		{ path: `${root}/Scans/Booklet.pdf`, message: "Ignored: not part of an audiobook" }
+		{
+			rootId,
+			path: "Dune [B002V1A0WE]/Dune꞉ Book One [B002V1A0WE].m4b",
+			message: "duplicate copy of the same audiobook, ignored",
+			kind: "duplicate",
+			set: `${rootId}|Dune [B002V1A0WE]|B002V1A0WE`
+		},
+		{ rootId, path: "Unknown Author/Broken Download/part 3.mp3", message: "Could not read tags: unexpected end of file", kind: "error", set: null }
+	];
+}
+
+function sampleCopies(path: string): AudioCopy[] {
+	const dir = path.slice(0, path.lastIndexOf("/") + 1);
+	const base: AudioCopy = {
+		path: `${dir}Dune [B002V1A0WE].m4b`,
+		fullPath: `/home/reader/Audiobooks/${dir}Dune [B002V1A0WE].m4b`,
+		inLibrary: true,
+		size: 612_000_000,
+		modified: "2026-11-20T18:04:00Z",
+		format: "M4B",
+		durationMs: 75_600_000,
+		bitrate: 64_761,
+		title: "Dune",
+		album: "Dune",
+		subtitle: null,
+		authors: ["Frank Herbert"],
+		narrators: ["Scott Brick", "Simon Vance"],
+		series: "Dune",
+		seriesIndex: 1,
+		publisher: "Macmillan Audio",
+		language: "english",
+		genres: ["Science Fiction"],
+		releaseDate: "2006-12-31",
+		asin: "B002V1A0WE",
+		hasCover: true,
+		error: null
+	};
+	return [
+		base,
+		{
+			...base,
+			path,
+			fullPath: `/home/reader/Audiobooks/${path}`,
+			inLibrary: false,
+			size: 1_190_000_000,
+			modified: "2025-03-02T09:12:00Z",
+			bitrate: 125_925,
+			title: "Dune: Book One",
+			genres: ["Science Fiction", "Classics"],
+			hasCover: false
+		}
 	];
 }
 
@@ -880,7 +930,7 @@ async function simulateScan(au: AudioMock, ids: number[], job: { cancelled: bool
 		total.complete &&= !offline;
 	}
 	if (total.audiobooks) {
-		au.issues = sampleIssues(au.roots.find((r) => r.id === ids[0])?.path ?? "");
+		au.issues = sampleIssues(ids[0]);
 		total.issues = au.issues.length;
 	}
 	onEvent({ event: "done", result: total });
@@ -1018,7 +1068,9 @@ function audibleStatus(s: State): AudibleStatus {
 		accounts: source === null ? [] : source === LIBATION_FILE ? AUDIBLE_ACCOUNTS : [AUDIBLE_ACCOUNTS[0]],
 		error: null,
 		lastSync: s.audio.audible.lastSync,
-		titles: s.audio.books.filter((a) => a.state === "remote").length
+		titles: s.audio.books.filter((a) => a.state === "remote").length,
+		notDownloaded: s.audio.books.filter((a) => a.state === "remote").length,
+		imported: source !== null
 	};
 }
 
@@ -1394,6 +1446,17 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown> = {}
 		case "audio_remove_root":
 			for (const x of s.audio.books) if (x.rootId === a.id) x.rootId = null;
 			s.audio.roots = s.audio.roots.filter((r) => r.id !== a.id);
+			return null;
+		case "audio_issue_copies":
+			return sampleCopies(a.path);
+		case "audio_issue_ignore":
+			s.audio.issues = s.audio.issues.filter((i) => !a.paths.includes(i.path));
+			return null;
+		case "audio_issue_pick":
+		case "audio_issue_delete":
+			s.audio.issues = s.audio.issues.filter((i) => i.kind !== "duplicate");
+			return null;
+		case "audio_issue_reveal":
 			return null;
 		case "audio_scan":
 			return startScan(s, a.rootIds, a.onEvent);

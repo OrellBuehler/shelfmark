@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::names::{
     asin_in, common_prefix, file_name, leading_number, number_after, parent, split_ext,
@@ -77,20 +77,25 @@ impl Group {
 }
 
 fn whole_book_asin(e: &Entry) -> Option<String> {
-    let stem = stem_of(e).trim_end();
+    stem_asin(stem_of(e))
+}
+
+pub(crate) fn stem_asin(stem: &str) -> Option<String> {
+    let stem = stem.trim_end();
     let asin = asin_in(stem)?;
     stem.to_uppercase()
         .ends_with(&format!("[{asin}]"))
         .then_some(asin)
 }
 
-fn drop_duplicates(audio: &mut Vec<Entry>) -> Vec<(String, Entry)> {
+fn drop_duplicates(audio: &mut Vec<Entry>, picks: &HashSet<String>) -> Vec<(String, Entry)> {
     let asins: Vec<Option<String>> = audio.iter().map(whole_book_asin).collect();
     let mut best: BTreeMap<&str, usize> = BTreeMap::new();
     for (i, asin) in asins.iter().enumerate() {
         let Some(asin) = asin.as_deref() else { continue };
+        let rank = |i: usize| (picks.contains(&audio[i].rel), audio[i].mtime, audio[i].size);
         match best.get(asin) {
-            Some(&b) if (audio[b].mtime, audio[b].size) >= (audio[i].mtime, audio[i].size) => {}
+            Some(&b) if rank(b) >= rank(i) => {}
             _ => {
                 best.insert(asin, i);
             }
@@ -155,6 +160,10 @@ fn is_one_book(dir: &str, audio: &[Entry]) -> bool {
 }
 
 pub fn group(entries: &[Entry]) -> Vec<Group> {
+    group_with(entries, &HashSet::new())
+}
+
+pub fn group_with(entries: &[Entry], picks: &HashSet<String>) -> Vec<Group> {
     let mut dirs: BTreeMap<&str, Vec<&Entry>> = BTreeMap::new();
     for e in entries {
         dirs.entry(parent(&e.rel)).or_default().push(e);
@@ -176,7 +185,7 @@ pub fn group(entries: &[Entry]) -> Vec<Group> {
         if audio.is_empty() {
             continue;
         }
-        let dropped = drop_duplicates(&mut audio);
+        let dropped = drop_duplicates(&mut audio, picks);
         let dups_for = |g: &[Entry]| -> Vec<Entry> {
             dropped
                 .iter()

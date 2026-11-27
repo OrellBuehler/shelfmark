@@ -68,7 +68,7 @@ Add an audiobook location in the settings. Shelfmark supports two ways of storin
 
 Ebooks and audiobooks of the same title are paired automatically by identifier or by title and author, and can be linked or unlinked by hand. The search understands `audio:true`, `ebook:false`, `narrators:"Name"`, `duration:>10` (hours) and `downloaded:false`.
 
-If [Libation](https://github.com/rmcrackan/Libation) is installed, Shelfmark can read your Audible library through Libation's sign-in and list the titles you own but have not downloaded. This is read-only: Shelfmark does not download or decrypt Audible titles, and it stores no Audible credentials of its own. Sign-ins that Libation stores encrypted are not supported.
+If [Libation](https://github.com/rmcrackan/Libation) is installed, Shelfmark can copy Libation's sign-in into its own settings and read your Audible library with it, listing the titles you own but have not downloaded. Once copied, syncing no longer needs Libation. This is read-only: Shelfmark does not download or decrypt Audible titles. Sign-ins that Libation stores encrypted are not supported.
 
 ## Install
 

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -39,6 +40,8 @@ pub struct AudibleStatus {
     error: Option<String>,
     last_sync: Option<String>,
     titles: u32,
+    not_downloaded: u32,
+    imported: bool,
 }
 
 #[derive(Serialize, Default)]
@@ -67,8 +70,40 @@ fn describe(a: &Account) -> AudibleAccount {
     }
 }
 
-fn status(store: &AudioStore) -> R<AudibleStatus> {
-    let source = store.setting(SOURCE).map_err(e)?;
+fn import(from: &Path, to: &Path) -> R<()> {
+    if from == to {
+        return Ok(());
+    }
+    let accounts = load_libation(from).map_err(e)?;
+    if accounts.is_empty() {
+        return Err("Libation has no accounts".into());
+    }
+    let tmp = to.with_extension("json.tmp");
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&tmp).map_err(e)?;
+    file.write_all(&std::fs::read(from).map_err(e)?).map_err(e)?;
+    file.sync_all().map_err(e)?;
+    drop(file);
+    std::fs::rename(&tmp, to).map_err(e)
+}
+
+fn status(state: &AppState, store: &AudioStore) -> R<AudibleStatus> {
+    let own = state.audible_file();
+    let mut source = store.setting(SOURCE).map_err(e)?;
+    if let Some(path) = &source
+        && Path::new(path) != own
+        && import(Path::new(path), &own).is_ok()
+    {
+        let moved = own.to_string_lossy().into_owned();
+        store.set_setting(SOURCE, Some(&moved)).map_err(e)?;
+        source = Some(moved);
+    }
     let (accounts, error) = match &source {
         Some(path) => match load_libation(&PathBuf::from(path)) {
             Ok(list) => (list.iter().map(describe).collect(), None),
@@ -77,35 +112,38 @@ fn status(store: &AudioStore) -> R<AudibleStatus> {
         None => (Vec::new(), None),
     };
     Ok(AudibleStatus {
+        imported: source.as_deref().map(Path::new) == Some(own.as_path()),
         source,
-        detected: default_libation_path().map(|p| p.to_string_lossy().into_owned()),
+        detected: default_libation_path()
+            .or_else(|| own.is_file().then_some(own))
+            .map(|p| p.to_string_lossy().into_owned()),
         accounts,
         error,
         last_sync: store.setting(LAST_SYNC).map_err(e)?,
         titles: store.remote_count().map_err(e)?,
+        not_downloaded: store.remote_missing_count().map_err(e)?,
     })
 }
 
 #[tauri::command(async)]
 pub fn audible_status(state: State<AppState>) -> R<AudibleStatus> {
-    status(&state.current()?.audio)
+    status(&state, &state.current()?.audio)
 }
 
 #[tauri::command(async)]
 pub fn audible_connect(state: State<AppState>, path: Option<String>) -> R<AudibleStatus> {
     let open = state.current()?;
+    let own = state.audible_file();
     let path = path
         .map(PathBuf::from)
         .or_else(default_libation_path)
+        .or_else(|| own.is_file().then(|| own.clone()))
         .ok_or("No Libation accounts file was found")?;
-    let accounts = load_libation(&path).map_err(e)?;
-    if accounts.is_empty() {
-        return Err("Libation has no accounts".into());
-    }
+    import(&path, &own)?;
     open.audio
-        .set_setting(SOURCE, Some(&path.to_string_lossy()))
+        .set_setting(SOURCE, Some(&own.to_string_lossy()))
         .map_err(e)?;
-    status(&open.audio)
+    status(&state, &open.audio)
 }
 
 #[tauri::command(async)]
@@ -114,7 +152,7 @@ pub fn audible_disconnect(state: State<AppState>) -> R<AudibleStatus> {
     open.audio.set_setting(SOURCE, None).map_err(e)?;
     open.audio.set_setting(LAST_SYNC, None).map_err(e)?;
     open.audio.clear_remote().map_err(e)?;
-    status(&open.audio)
+    status(&state, &open.audio)
 }
 
 #[tauri::command(async)]
