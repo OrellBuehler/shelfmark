@@ -60,6 +60,10 @@ impl AppState {
         Ok(state)
     }
 
+    pub fn audible_file(&self) -> PathBuf {
+        self.config_path.with_file_name("audible-accounts.json")
+    }
+
     pub fn current(&self) -> Result<Arc<OpenLibrary>, String> {
         self.open
             .read()

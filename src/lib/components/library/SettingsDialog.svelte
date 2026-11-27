@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ChevronRight from "@lucide/svelte/icons/chevron-right";
+	import Cloud from "@lucide/svelte/icons/cloud";
 	import FolderOpen from "@lucide/svelte/icons/folder-open";
 	import FolderSearch from "@lucide/svelte/icons/folder-search";
 	import Headphones from "@lucide/svelte/icons/headphones";
@@ -21,16 +21,22 @@
 	import { lib, pickFolder } from "#lib/stores/library.svelte";
 	import { cn } from "#lib/utils";
 	import AudibleSettings from "./AudibleSettings.svelte";
+	import IssuesPanel from "./IssuesPanel.svelte";
 
 	let { open = $bindable(false) }: { open: boolean } = $props();
 
 	let confirming = $state<number | null>(null);
 	let forgetting = $state<number | null>(null);
-	let issuesOpen = $state(false);
+	let section = $state<"audiobooks" | "audible" | "issues">("audiobooks");
 	let adding = $state(false);
 
 	const roots = $derived(audio.status.roots);
-	const issues = $derived(audio.status.issues);
+	const issueCount = $derived(new Set(audio.status.issues.map((i) => i.set ?? `${i.rootId}|${i.path}`)).size);
+	const sections = $derived([
+		{ id: "audiobooks" as const, label: "Audiobooks", icon: Headphones, count: 0 },
+		{ id: "audible" as const, label: "Audible", icon: Cloud, count: 0 },
+		{ id: "issues" as const, label: "Issues", icon: TriangleAlert, count: issueCount }
+	]);
 	const progress = $derived(audio.job?.progress ?? null);
 	const hasLibraryRoot = $derived(roots.some((r) => r.inLibrary));
 	const ratio = $derived(progress && progress.total ? Math.min(100, (progress.done / progress.total) * 100) : 0);
@@ -79,12 +85,36 @@
 </script>
 
 <Dialog.Root bind:open>
-	<Dialog.Content class="flex max-h-[min(88vh,760px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+	<Dialog.Content class="flex h-[min(92vh,900px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
 		<header class="border-b py-3.5 pr-14 pl-6">
 			<Dialog.Title class="text-base font-semibold">Settings</Dialog.Title>
 			<Dialog.Description class="mt-0.5 text-xs text-muted-foreground">Preferences for this library.</Dialog.Description>
 		</header>
 
+		<div class="flex min-h-0 flex-1 flex-col sm:flex-row">
+			<nav class="flex shrink-0 gap-1 border-b p-2 sm:w-48 sm:flex-col sm:border-r sm:border-b-0 sm:p-3" aria-label="Settings sections">
+				{#each sections as item (item.id)}
+					<button
+						type="button"
+						class={cn(
+							"flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] font-medium text-muted-foreground outline-none hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+							section === item.id && "bg-accent text-foreground"
+						)}
+						aria-current={section === item.id ? "page" : undefined}
+						onclick={() => (section = item.id)}
+					>
+						<item.icon class="size-4 shrink-0" />
+						<span class="flex-1">{item.label}</span>
+						{#if item.count}<Badge variant="secondary" class="tabular-nums">{item.count}</Badge>{/if}
+					</button>
+				{/each}
+			</nav>
+
+			{#if section === "issues"}
+				<div class="min-h-0 min-w-0 flex-1"><IssuesPanel /></div>
+			{:else if section === "audible"}
+				<div class="thin-scroll min-h-0 flex-1 overflow-y-auto p-6"><AudibleSettings /></div>
+			{:else}
 		<div class="thin-scroll min-h-0 flex-1 space-y-4 overflow-y-auto p-6">
 			<div class="flex items-center gap-2">
 				<Headphones class="size-4 text-brand" />
@@ -287,31 +317,15 @@
 				</p>
 			{/if}
 
-			{#if issues.length}
-				<section>
-					<button
-						type="button"
-						class="flex items-center gap-1 rounded-sm text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-						aria-expanded={issuesOpen}
-						onclick={() => (issuesOpen = !issuesOpen)}
-					>
-						<ChevronRight class={cn("size-3.5 transition-transform", issuesOpen && "rotate-90")} />
-						Issues ({issues.length})
-					</button>
-					{#if issuesOpen}
-						<ul class="mt-2 space-y-1.5">
-							{#each issues as issue (issue.path + issue.message)}
-								<li class="rounded-md border bg-card px-3 py-2">
-									<div class="truncate font-mono text-[11px]" title={issue.path}>{issue.path}</div>
-									<div class="mt-0.5 text-xs text-muted-foreground">{issue.message}</div>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</section>
+			{#if issueCount}
+				<div class="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2.5 text-[13px]">
+					<TriangleAlert class="size-4 shrink-0 text-muted-foreground" />
+					<span class="min-w-0 flex-1">{plural(issueCount, "issue")} found while scanning, such as duplicate copies.</span>
+					<Button size="xs" variant="outline" onclick={() => (section = "issues")}>Review</Button>
+				</div>
 			{/if}
-
-			<AudibleSettings />
+		</div>
+			{/if}
 		</div>
 	</Dialog.Content>
 </Dialog.Root>

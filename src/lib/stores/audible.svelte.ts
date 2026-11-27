@@ -3,7 +3,7 @@ import { api, type AudibleStatus, type AudibleSyncResult, type JobEnd, type JobP
 import { errorMessage, plural } from "#lib/format";
 import { audio } from "#lib/stores/audio.svelte";
 
-const EMPTY: AudibleStatus = { source: null, detected: null, accounts: [], error: null, lastSync: null, titles: 0 };
+const EMPTY: AudibleStatus = { source: null, detected: null, accounts: [], error: null, lastSync: null, titles: 0, notDownloaded: 0, imported: false };
 
 interface SyncJob {
 	progress: JobProgress | null;
@@ -67,7 +67,7 @@ class AudibleState {
 			this.status = await api.audibleDisconnect();
 			await audio.refresh();
 			toast.success("Disconnected from Audible", {
-				description: "Not-downloaded titles were removed from Shelfmark. Libation and your files were not touched."
+				description: "Not-downloaded titles were removed from Shelfmark. Your files were not touched."
 			});
 		} catch (e) {
 			toast.error(`Could not disconnect: ${errorMessage(e)}`);

@@ -248,8 +248,36 @@ export interface AudioRoot {
 }
 
 export interface AudioIssue {
+	rootId: number;
 	path: string;
 	message: string;
+	kind: "duplicate" | "error";
+	set: string | null;
+}
+
+export interface AudioCopy {
+	path: string;
+	fullPath: string;
+	inLibrary: boolean;
+	size: number;
+	modified: string;
+	format: string;
+	durationMs: number | null;
+	bitrate: number | null;
+	title: string | null;
+	album: string | null;
+	subtitle: string | null;
+	authors: string[];
+	narrators: string[];
+	series: string | null;
+	seriesIndex: number | null;
+	publisher: string | null;
+	language: string | null;
+	genres: string[];
+	releaseDate: string | null;
+	asin: string | null;
+	hasCover: boolean;
+	error: string | null;
 }
 
 export interface AudioStatus {
@@ -332,6 +360,8 @@ export interface AudibleStatus {
 	error: string | null;
 	lastSync: string | null;
 	titles: number;
+	notDownloaded: number;
+	imported: boolean;
 }
 
 export interface AudibleSyncResult {
@@ -492,6 +522,11 @@ export const api = {
 	audioForgetMissing: (id: number) => invoke<number>("audio_forget_missing", { id }),
 	audioScan: (rootIds: number[] | null, onProgress: (p: JobProgress) => void) =>
 		runJob("audio_scan", { rootIds }, onProgress),
+	audioIssueCopies: (rootId: number, path: string) => invoke<AudioCopy[]>("audio_issue_copies", { rootId, path }),
+	audioIssuePick: (rootId: number, path: string) => invoke<void>("audio_issue_pick", { rootId, path }),
+	audioIssueIgnore: (rootId: number, paths: string[]) => invoke<void>("audio_issue_ignore", { rootId, paths }),
+	audioIssueDelete: (rootId: number, path: string) => invoke<void>("audio_issue_delete", { rootId, path }),
+	audioIssueReveal: (rootId: number, path: string) => invoke<void>("audio_issue_reveal", { rootId, path }),
 	audiobook: (id: AudiobookId) => invoke<AudiobookInfo>("audiobook", { id }),
 	audioLink: (audiobookId: AudiobookId, bookId: BookId) => invoke<void>("audio_link", { audiobookId, bookId }),
 	audioUnlink: (audiobookId: AudiobookId, bookId: BookId) => invoke<void>("audio_unlink", { audiobookId, bookId }),

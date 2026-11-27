@@ -8,7 +8,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use shelfmark_model::{AudioChapter, AudiobookId};
 
 use crate::error::{Error, Result};
-use crate::group::{Group, group};
+use crate::group::{Group, group_with};
 use crate::names::{file_name, leading_number, parent, split_ext, strip_track, title_from};
 use crate::sidecar;
 use crate::store::{AudioStore, Issue, ScannedBook, ScannedFile};
@@ -150,6 +150,8 @@ fn build(root: &Path, g: &Group, reader: &dyn TagReader) -> Vec<Built> {
                 issues.push(Issue {
                     path: e.rel.clone(),
                     message: err.to_string(),
+                    kind: "error".into(),
+                    ..Default::default()
                 });
                 tags.push(None);
             }
@@ -159,6 +161,8 @@ fn build(root: &Path, g: &Group, reader: &dyn TagReader) -> Vec<Built> {
         issues.push(Issue {
             path: d.rel.clone(),
             message: "duplicate copy of the same audiobook, ignored".into(),
+            kind: "duplicate".into(),
+            ..Default::default()
         });
     }
     let mut out = if should_split(g, &tags) {
@@ -358,7 +362,7 @@ pub fn scan(
             });
         }
     })?;
-    let groups = group(&entries);
+    let groups = group_with(&entries, &store.picks(root_id)?);
     let indexed_files = store.indexed_files(root_id)?;
     let indexed_books = store.indexed_books(root_id)?;
     let key_of: HashMap<AudiobookId, &str> =

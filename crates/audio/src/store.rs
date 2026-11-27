@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -11,7 +11,7 @@ use shelfmark_model::{
 
 use crate::error::{Error, Result};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
 const BOOK_COLUMNS: &str = "id, root_id, state, title, subtitle, authors, narrators, series, \
@@ -121,8 +121,10 @@ pub struct RemoteSync {
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Issue {
+    pub root_id: i64,
     pub path: String,
     pub message: String,
+    pub kind: String,
 }
 
 fn json_list(raw: Option<String>) -> Vec<String> {
@@ -589,39 +591,98 @@ impl AudioStore {
         for i in issues {
             tx.execute(
                 &format!(
-                    "INSERT INTO audio_issue (root_id, path, message, seen)
-                     VALUES (?1, ?2, ?3, {NOW})"
+                    "INSERT INTO audio_issue (root_id, path, message, kind, seen)
+                     SELECT ?1, ?2, ?3, ?4, {NOW}
+                     WHERE NOT EXISTS (SELECT 1 FROM audio_issue_ignored
+                                       WHERE root_id = ?1 AND path = ?2)"
                 ),
-                params![root_id, i.path, i.message],
+                params![root_id, i.path, i.message, i.kind],
             )?;
         }
         tx.commit()?;
         Ok(())
     }
 
-    pub fn issues_in(&self, root_id: i64) -> Result<Vec<Issue>> {
+    fn query_issues(&self, root_id: Option<i64>) -> Result<Vec<Issue>> {
         let conn = self.conn()?;
-        let mut stmt =
-            conn.prepare("SELECT path, message FROM audio_issue WHERE root_id = ?1 ORDER BY path")?;
+        let mut stmt = conn.prepare(
+            "SELECT root_id, path, message, kind FROM audio_issue
+             WHERE ?1 IS NULL OR root_id = ?1 ORDER BY path",
+        )?;
         let rows = stmt.query_map([root_id], |r| {
             Ok(Issue {
-                path: r.get(0)?,
-                message: r.get(1)?,
+                root_id: r.get(0)?,
+                path: r.get(1)?,
+                message: r.get(2)?,
+                kind: r.get(3)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    pub fn issues_in(&self, root_id: i64) -> Result<Vec<Issue>> {
+        self.query_issues(Some(root_id))
+    }
+
     pub fn issues(&self) -> Result<Vec<Issue>> {
+        self.query_issues(None)
+    }
+
+    pub fn ignore_issues(&self, root_id: i64, paths: &[String]) -> Result<()> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        for p in paths {
+            tx.execute(
+                "INSERT OR IGNORE INTO audio_issue_ignored (root_id, path) VALUES (?1, ?2)",
+                params![root_id, p],
+            )?;
+            tx.execute(
+                "DELETE FROM audio_issue WHERE root_id = ?1 AND path = ?2",
+                params![root_id, p],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn picks(&self, root_id: i64) -> Result<HashSet<String>> {
         let conn = self.conn()?;
-        let mut stmt = conn.prepare("SELECT path, message FROM audio_issue ORDER BY path")?;
-        let rows = stmt.query_map([], |r| {
-            Ok(Issue {
-                path: r.get(0)?,
-                message: r.get(1)?,
-            })
-        })?;
+        let mut stmt = conn.prepare("SELECT path FROM audio_pick WHERE root_id = ?1")?;
+        let rows = stmt.query_map([root_id], |r| r.get(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn set_pick(&self, root_id: i64, path: &str, others: &[String]) -> Result<()> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        for p in others.iter().map(String::as_str).chain([path]) {
+            tx.execute(
+                "DELETE FROM audio_pick WHERE root_id = ?1 AND path = ?2",
+                params![root_id, p],
+            )?;
+            tx.execute(
+                "DELETE FROM audio_issue_ignored WHERE root_id = ?1 AND path = ?2",
+                params![root_id, p],
+            )?;
+        }
+        tx.execute(
+            "INSERT INTO audio_pick (root_id, path) VALUES (?1, ?2)",
+            params![root_id, path],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn remote_missing_count(&self) -> Result<u32> {
+        let n: i64 = self.conn()?.query_row(
+            "SELECT COUNT(*) FROM audiobook a
+             WHERE a.root_id IS NULL AND NOT EXISTS (
+               SELECT 1 FROM audiobook d JOIN audio_root r ON r.id = d.root_id
+               WHERE d.asin = a.asin AND d.state = 'present' AND r.enabled = 1)",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(n as u32)
     }
 
     pub fn list(&self) -> Result<Arc<Vec<AudiobookRow>>> {
@@ -1049,6 +1110,25 @@ fn migrate(conn: &Connection) -> Result<()> {
                seen    TEXT NOT NULL
              );
              INSERT OR REPLACE INTO audio_meta (key, value) VALUES ('schema', '1');
+             COMMIT;",
+        )?;
+    }
+    if version < 2 {
+        conn.execute_batch(
+            "BEGIN;
+             ALTER TABLE audio_issue ADD COLUMN kind TEXT NOT NULL DEFAULT 'error';
+             UPDATE audio_issue SET kind = 'duplicate' WHERE message LIKE 'duplicate copy%';
+             CREATE TABLE audio_issue_ignored (
+               root_id INTEGER NOT NULL REFERENCES audio_root(id) ON DELETE CASCADE,
+               path    TEXT NOT NULL,
+               PRIMARY KEY (root_id, path)
+             );
+             CREATE TABLE audio_pick (
+               root_id INTEGER NOT NULL REFERENCES audio_root(id) ON DELETE CASCADE,
+               path    TEXT NOT NULL,
+               PRIMARY KEY (root_id, path)
+             );
+             INSERT OR REPLACE INTO audio_meta (key, value) VALUES ('schema', '2');
              COMMIT;",
         )?;
     }

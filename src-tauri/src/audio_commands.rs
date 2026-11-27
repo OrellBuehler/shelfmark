@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use shelfmark_audio::transfer::{self, Dest, Mode, TransferPlan, Verify};
+use shelfmark_audio::duplicates;
 use shelfmark_audio::{AudioStore, Issue, LoftyReader, NewRoot, RootPatch, ScanSummary, scan};
 use shelfmark_model::*;
 use tauri::ipc::Channel;
@@ -25,7 +26,15 @@ const LIBRARY_ROOT: &str = "Audiobooks";
 pub struct AudioStatus {
     roots: Vec<AudioRoot>,
     audiobooks: u32,
-    issues: Vec<Issue>,
+    issues: Vec<IssueInfo>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueInfo {
+    #[serde(flatten)]
+    issue: Issue,
+    set: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -67,7 +76,17 @@ fn status(store: &AudioStore) -> R<AudioStatus> {
     Ok(AudioStatus {
         audiobooks: roots.iter().filter(|r| r.enabled).map(|r| r.audiobooks).sum(),
         roots,
-        issues: store.issues().map_err(e)?,
+        issues: store
+            .issues()
+            .map_err(e)?
+            .into_iter()
+            .map(|issue| IssueInfo {
+                set: (issue.kind == "duplicate")
+                    .then(|| duplicates::set_key(issue.root_id, &issue.path))
+                    .flatten(),
+                issue,
+            })
+            .collect(),
     })
 }
 
@@ -126,6 +145,57 @@ pub fn audio_remove_root(state: State<AppState>, id: i64) -> R<()> {
 #[tauri::command(async)]
 pub fn audio_forget_missing(state: State<AppState>, id: i64) -> R<u32> {
     state.current()?.audio.forget_missing(id).map_err(e)
+}
+
+#[tauri::command(async)]
+pub fn audio_issue_copies(
+    state: State<AppState>,
+    root_id: i64,
+    path: String,
+) -> R<Vec<duplicates::Copy>> {
+    duplicates::copies(&state.current()?.audio, root_id, &path, &LoftyReader).map_err(e)
+}
+
+#[tauri::command(async)]
+pub fn audio_issue_pick(state: State<AppState>, root_id: i64, path: String) -> R<()> {
+    let open = state.current()?;
+    let others = duplicates::siblings(&open.audio, root_id, &path).map_err(e)?;
+    if !others.contains(&path) {
+        return Err(format!("File is not reachable: {path}"));
+    }
+    open.audio.set_pick(root_id, &path, &others).map_err(e)
+}
+
+#[tauri::command(async)]
+pub fn audio_issue_ignore(state: State<AppState>, root_id: i64, paths: Vec<String>) -> R<()> {
+    state.current()?.audio.ignore_issues(root_id, &paths).map_err(e)
+}
+
+#[tauri::command(async)]
+pub fn audio_issue_delete(state: State<AppState>, root_id: i64, path: String) -> R<()> {
+    let open = state.current()?;
+    let copies = duplicates::siblings(&open.audio, root_id, &path).map_err(e)?;
+    if !copies.contains(&path) {
+        return Err(format!("File is not reachable: {path}"));
+    }
+    if copies.len() < 2 {
+        return Err("This is the only copy of the audiobook, it was not deleted".into());
+    }
+    std::fs::remove_file(duplicates::resolve(&open.audio, root_id, &path).map_err(e)?).map_err(e)
+}
+
+#[tauri::command(async)]
+pub fn audio_issue_reveal(
+    app: AppHandle,
+    state: State<AppState>,
+    root_id: i64,
+    path: String,
+) -> R<()> {
+    let full = duplicates::resolve(&state.current()?.audio, root_id, &path).map_err(e)?;
+    if !full.exists() {
+        return Err(format!("File is not reachable: {}", full.display()));
+    }
+    app.opener().reveal_item_in_dir(full).map_err(e)
 }
 
 #[tauri::command(async)]
