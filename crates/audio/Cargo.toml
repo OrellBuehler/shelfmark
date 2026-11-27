@@ -10,7 +10,7 @@ shelfmark-reading.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 lofty = "0.25.5"
 regex = "1"
@@ -19,5 +19,5 @@ fs4 = "1"
 blake3 = "1.8.7"
 
 [dev-dependencies]
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
